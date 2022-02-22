@@ -117,7 +117,7 @@ func Test_RTPSender_GetParameters(t *testing.T) {
 	parameters := rtpTransceiver.Sender().GetParameters()
 	assert.NotEqual(t, 0, len(parameters.Codecs))
 	assert.Equal(t, 1, len(parameters.Encodings))
-	assert.Equal(t, rtpTransceiver.Sender().ssrc, parameters.Encodings[0].SSRC)
+	assert.Equal(t, rtpTransceiver.Sender().trackEncodings[0].ssrc, parameters.Encodings[0].SSRC)
 	assert.Equal(t, "", parameters.Encodings[0].RID)
 
 	closePairNow(t, offerer, answerer)

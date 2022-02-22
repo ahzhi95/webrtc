@@ -142,6 +142,9 @@ var (
 	// ErrRTPSenderNewTrackHasIncorrectKind indicates that the new track is of a different kind than the previous/original
 	ErrRTPSenderNewTrackHasIncorrectKind = errors.New("new track must be of the same kind as previous")
 
+	// ErrRTPSenderNewTrackHasIncorrectEnvelope indicates that the new track has a different envelope than the previous/original
+	ErrRTPSenderNewTrackHasIncorrectEnvelope = errors.New("new track must have the same envelope as previous")
+
 	// ErrUnbindFailed indicates that a TrackLocal was not able to be unbind
 	ErrUnbindFailed = errors.New("failed to unbind TrackLocal from PeerConnection")
 

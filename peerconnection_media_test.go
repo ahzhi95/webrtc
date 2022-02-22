@@ -162,7 +162,7 @@ func TestPeerConnection_Media_Sample(t *testing.T) {
 	go func() {
 		for {
 			time.Sleep(time.Millisecond * 100)
-			if routineErr := pcOffer.WriteRTCP([]rtcp.Packet{&rtcp.PictureLossIndication{SenderSSRC: uint32(sender.ssrc), MediaSSRC: uint32(sender.ssrc)}}); routineErr != nil {
+			if routineErr := pcOffer.WriteRTCP([]rtcp.Packet{&rtcp.PictureLossIndication{SenderSSRC: uint32(sender.trackEncodings[0].ssrc), MediaSSRC: uint32(sender.trackEncodings[0].ssrc)}}); routineErr != nil {
 				awaitRTCPSenderSend <- routineErr
 			}
 
@@ -643,12 +643,12 @@ func TestAddTransceiverAddTrack_Reuse(t *testing.T) {
 	track1, sender1 := addTrack()
 	assert.Equal(t, 1, len(pc.GetTransceivers()))
 	assert.Equal(t, sender1, tr.Sender())
-	assert.Equal(t, track1, tr.Sender().track)
+	assert.Equal(t, track1, tr.Sender().Track())
 	require.NoError(t, pc.RemoveTrack(sender1))
 
 	track2, _ := addTrack()
 	assert.Equal(t, 1, len(pc.GetTransceivers()))
-	assert.Equal(t, track2, tr.Sender().track)
+	assert.Equal(t, track2, tr.Sender().Track())
 
 	addTrack()
 	assert.Equal(t, 2, len(pc.GetTransceivers()))

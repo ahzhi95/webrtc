@@ -52,7 +52,7 @@ func (s *srtpWriterFuture) init(returnWhenNoSRTP bool) error {
 		return err
 	}
 
-	rtcpReadStream, err := srtcpSession.OpenReadStream(uint32(s.rtpSender.ssrc))
+	rtcpReadStream, err := srtcpSession.OpenReadStream(uint32(s.rtpSender.trackEncodings[0].ssrc))
 	if err != nil {
 		return err
 	}

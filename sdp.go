@@ -413,7 +413,7 @@ func addTransceiverSDP(d *sdp.SessionDescription, isPlanB, shouldAddCandidates b
 	for _, mt := range transceivers {
 		if sender := mt.Sender(); sender != nil && sender.Track() != nil {
 			track := sender.Track()
-			media = media.WithMediaSource(uint32(sender.ssrc), track.StreamID() /* cname */, track.StreamID() /* streamLabel */, track.ID())
+			media = media.WithMediaSource(uint32(sender.trackEncodings[0].ssrc), track.StreamID() /* cname */, track.StreamID() /* streamLabel */, track.ID())
 			if !isPlanB {
 				media = media.WithPropertyAttribute("msid:" + track.StreamID() + " " + track.ID())
 				break
