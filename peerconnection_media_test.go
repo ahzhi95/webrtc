@@ -1282,7 +1282,7 @@ func TestPeerConnection_Simulcast(t *testing.T) {
 		assert.Equal(t, "c", parameters.Encodings[2].RID)
 
 		var midID, ridID, rsidID uint8
-		for _, extension := range sender.GetParameters().HeaderExtensions {
+		for _, extension := range parameters.HeaderExtensions {
 			switch extension.URI {
 			case sdp.SDESMidURI:
 				midID = uint8(extension.ID)
