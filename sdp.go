@@ -413,9 +413,26 @@ func addTransceiverSDP(d *sdp.SessionDescription, isPlanB, shouldAddCandidates b
 	for _, mt := range transceivers {
 		if sender := mt.Sender(); sender != nil && sender.Track() != nil {
 			track := sender.Track()
-			media = media.WithMediaSource(uint32(sender.trackEncodings[0].ssrc), track.StreamID() /* cname */, track.StreamID() /* streamLabel */, track.ID())
+			sendParameters := sender.GetParameters()
+			for _, encoding := range sendParameters.Encodings {
+				media = media.WithMediaSource(uint32(encoding.SSRC), track.StreamID() /* cname */, track.StreamID() /* streamLabel */, track.ID())
+				if !isPlanB {
+					media = media.WithPropertyAttribute("msid:" + track.StreamID() + " " + track.ID())
+				}
+			}
+
+			if len(sendParameters.Encodings) > 1 {
+				sendRids := make([]string, 0, len(sendParameters.Encodings))
+
+				for _, encoding := range sendParameters.Encodings {
+					media.WithValueAttribute(sdpAttributeRid, encoding.RID+" send")
+					sendRids = append(sendRids, encoding.RID)
+				}
+				// Simulcast
+				media.WithValueAttribute("simulcast", "send "+strings.Join(sendRids, ";"))
+			}
+
 			if !isPlanB {
-				media = media.WithPropertyAttribute("msid:" + track.StreamID() + " " + track.ID())
 				break
 			}
 		}

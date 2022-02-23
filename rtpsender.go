@@ -4,6 +4,7 @@
 package webrtc
 
 import (
+	"fmt"
 	"io"
 	"sync"
 	"time"
@@ -75,18 +76,7 @@ func (api *API) NewRTPSender(track TrackLocal, transport *DTLSTransport) (*RTPSe
 		kind:       track.Kind(),
 	}
 
-	trackEncoding := &trackEncoding{
-		track:      track,
-		srtpStream: &srtpWriterFuture{},
-		ssrc:       SSRC(randutil.NewMathRandomGenerator().Uint32()),
-	}
-	trackEncoding.srtpStream.rtpSender = r
-	trackEncoding.rtcpInterceptor = r.api.interceptor.BindRTCPReader(interceptor.RTPReaderFunc(func(in []byte, a interceptor.Attributes) (n int, attributes interceptor.Attributes, err error) {
-		n, err = trackEncoding.srtpStream.Read(in)
-		return n, a, err
-	}))
-
-	r.trackEncodings = append(r.trackEncodings, trackEncoding)
+	r.addEncoding(track)
 
 	return r, nil
 }
@@ -153,6 +143,70 @@ func (r *RTPSender) GetParameters() RTPSendParameters {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.getParameters()
+}
+
+func (r *RTPSender) AddEncoding(track TrackLocal) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if track == nil {
+		return errRTPSenderTrackNil
+	}
+
+	if track.RID() == "" {
+		return errRTPSenderRidNil
+	}
+
+	if r.hasStopped() {
+		return errRTPSenderStopped
+	}
+
+	if r.hasSent() {
+		return errRTPSenderSendAlreadyCalled
+	}
+
+	var refTrack TrackLocal
+	if len(r.trackEncodings) != 0 {
+		refTrack = r.trackEncodings[0].track
+	}
+	if refTrack == nil || refTrack.RID() == "" {
+		return errRTPSenderNoBaseEncoding
+	}
+
+	if refTrack.ID() != track.ID() || refTrack.StreamID() != track.StreamID() || refTrack.Kind() != track.Kind() {
+		return errRTPSenderBaseEncodingMismatch
+	}
+
+	for _, encoding := range r.trackEncodings {
+		if encoding.track == nil {
+			continue
+		}
+
+		if encoding.track.RID() == track.RID() {
+			return errRTPSenderRIDCollision
+		}
+	}
+
+	r.addEncoding(track)
+	return nil
+}
+
+func (r *RTPSender) addEncoding(track TrackLocal) {
+	ssrc := SSRC(randutil.NewMathRandomGenerator().Uint32())
+	trackEncoding := &trackEncoding{
+		track:      track,
+		srtpStream: &srtpWriterFuture{ssrc: ssrc},
+		ssrc:       ssrc,
+	}
+	trackEncoding.srtpStream.rtpSender = r
+	trackEncoding.rtcpInterceptor = r.api.interceptor.BindRTCPReader(
+		interceptor.RTPReaderFunc(func(in []byte, a interceptor.Attributes) (n int, attributes interceptor.Attributes, err error) {
+			n, err = trackEncoding.srtpStream.Read(in)
+			return n, a, err
+		}),
+	)
+
+	r.trackEncodings = append(r.trackEncodings, trackEncoding)
 }
 
 // Track returns the RTCRtpTransceiver track, or nil
@@ -236,12 +290,12 @@ func (r *RTPSender) Send(parameters RTPSendParameters) error {
 		return errRTPSenderTrackRemoved
 	}
 
-	for _, trackEncoding := range r.trackEncodings {
+	for idx, trackEncoding := range r.trackEncodings {
 		writeStream := &interceptorToTrackLocalWriter{}
 		trackEncoding.context = TrackLocalContext{
 			id:          r.id,
 			params:      r.api.mediaEngine.getRTPParametersByKind(trackEncoding.track.Kind(), []RTPTransceiverDirection{RTPTransceiverDirectionSendonly}),
-			ssrc:        parameters.Encodings[0].SSRC,
+			ssrc:        parameters.Encodings[idx].SSRC,
 			writeStream: writeStream,
 		}
 
@@ -251,10 +305,19 @@ func (r *RTPSender) Send(parameters RTPSendParameters) error {
 		}
 		trackEncoding.context.params.Codecs = []RTPCodecParameters{codec}
 
-		trackEncoding.streamInfo = *createStreamInfo(r.id, parameters.Encodings[0].SSRC, codec.PayloadType, codec.RTPCodecCapability, parameters.HeaderExtensions)
-		rtpInterceptor := r.api.interceptor.BindLocalStream(&trackEncoding.streamInfo, interceptor.RTPWriterFunc(func(header *rtp.Header, payload []byte, attributes interceptor.Attributes) (int, error) {
-			return trackEncoding.srtpStream.WriteRTP(header, payload)
-		}))
+		trackEncoding.streamInfo = *createStreamInfo(
+			r.id,
+			parameters.Encodings[idx].SSRC,
+			codec.PayloadType,
+			codec.RTPCodecCapability,
+			parameters.HeaderExtensions,
+		)
+		rtpInterceptor := r.api.interceptor.BindLocalStream(
+			&trackEncoding.streamInfo,
+			interceptor.RTPWriterFunc(func(header *rtp.Header, payload []byte, attributes interceptor.Attributes) (int, error) {
+				return trackEncoding.srtpStream.WriteRTP(header, payload)
+			}),
+		)
 		writeStream.interceptor.Store(rtpInterceptor)
 	}
 
@@ -317,10 +380,50 @@ func (r *RTPSender) ReadRTCP() ([]rtcp.Packet, interceptor.Attributes, error) {
 	return pkts, attributes, nil
 }
 
+// ReadSimulcast reads incoming RTCP for this RTPSender for given rid
+func (r *RTPSender) ReadSimulcast(b []byte, rid string) (n int, a interceptor.Attributes, err error) {
+	select {
+	case <-r.sendCalled:
+		for _, t := range r.trackEncodings {
+			if t.track != nil && t.track.RID() == rid {
+				return t.rtcpInterceptor.Read(b, a)
+			}
+		}
+		return 0, nil, fmt.Errorf("%w: %s", errRTPSenderNoTrackForRID, rid)
+	case <-r.stopCalled:
+		return 0, nil, io.ErrClosedPipe
+	}
+}
+
+// ReadSimulcastRTCP is a convenience method that wraps ReadSimulcast and unmarshal for you
+func (r *RTPSender) ReadSimulcastRTCP(rid string) ([]rtcp.Packet, interceptor.Attributes, error) {
+	b := make([]byte, r.api.settingEngine.getReceiveMTU())
+	i, attributes, err := r.ReadSimulcast(b, rid)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	pkts, err := rtcp.Unmarshal(b[:i])
+	return pkts, attributes, err
+}
+
 // SetReadDeadline sets the deadline for the Read operation.
 // Setting to zero means no deadline.
 func (r *RTPSender) SetReadDeadline(t time.Time) error {
 	return r.trackEncodings[0].srtpStream.SetReadDeadline(t)
+}
+
+// SetReadDeadlineSimulcast sets the max amount of time the RTCP stream for a given rid will block before returning. 0 is forever.
+func (r *RTPSender) SetReadDeadlineSimulcast(deadline time.Time, rid string) error {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for _, t := range r.trackEncodings {
+		if t.track != nil && t.track.RID() == rid {
+			return t.srtpStream.SetReadDeadline(deadline)
+		}
+	}
+	return fmt.Errorf("%w: %s", errRTPSenderNoTrackForRID, rid)
 }
 
 // hasSent tells if data has been ever sent for this instance
