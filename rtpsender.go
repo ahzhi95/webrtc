@@ -145,6 +145,7 @@ func (r *RTPSender) GetParameters() RTPSendParameters {
 	return r.getParameters()
 }
 
+// AddEncoding adds an encoding to RTPSender. Used by simulcast senders.
 func (r *RTPSender) AddEncoding(track TrackLocal) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -312,10 +313,11 @@ func (r *RTPSender) Send(parameters RTPSendParameters) error {
 			codec.RTPCodecCapability,
 			parameters.HeaderExtensions,
 		)
+		srtpStream := trackEncoding.srtpStream
 		rtpInterceptor := r.api.interceptor.BindLocalStream(
 			&trackEncoding.streamInfo,
 			interceptor.RTPWriterFunc(func(header *rtp.Header, payload []byte, attributes interceptor.Attributes) (int, error) {
-				return trackEncoding.srtpStream.WriteRTP(header, payload)
+				return srtpStream.WriteRTP(header, payload)
 			}),
 		)
 		writeStream.interceptor.Store(rtpInterceptor)

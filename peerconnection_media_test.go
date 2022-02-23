@@ -1256,21 +1256,21 @@ func TestPeerConnection_Simulcast(t *testing.T) {
 		pcOffer, pcAnswer, err := NewAPI(WithMediaEngine(m)).newPair(Configuration{})
 		assert.NoError(t, err)
 
-		vp8Writer_a, err := NewTrackLocalStaticRTP(RTPCodecCapability{MimeType: MimeTypeVP8}, "video", "pion2", WithRTPStreamID("a"))
+		vp8WriterA, err := NewTrackLocalStaticRTP(RTPCodecCapability{MimeType: MimeTypeVP8}, "video", "pion2", WithRTPStreamID("a"))
 		assert.NoError(t, err)
 
-		sender, err := pcOffer.AddTrack(vp8Writer_a)
+		sender, err := pcOffer.AddTrack(vp8WriterA)
 		assert.NoError(t, err)
 		assert.NotNil(t, sender)
 
-		vp8Writer_b, err := NewTrackLocalStaticRTP(RTPCodecCapability{MimeType: MimeTypeVP8}, "video", "pion2", WithRTPStreamID("b"))
+		vp8WriterB, err := NewTrackLocalStaticRTP(RTPCodecCapability{MimeType: MimeTypeVP8}, "video", "pion2", WithRTPStreamID("b"))
 		assert.NoError(t, err)
-		err = sender.AddEncoding(vp8Writer_b)
+		err = sender.AddEncoding(vp8WriterB)
 		assert.NoError(t, err)
 
-		vp8Writer_c, err := NewTrackLocalStaticRTP(RTPCodecCapability{MimeType: MimeTypeVP8}, "video", "pion2", WithRTPStreamID("c"))
+		vp8WriterC, err := NewTrackLocalStaticRTP(RTPCodecCapability{MimeType: MimeTypeVP8}, "video", "pion2", WithRTPStreamID("c"))
 		assert.NoError(t, err)
-		err = sender.AddEncoding(vp8Writer_c)
+		err = sender.AddEncoding(vp8WriterC)
 		assert.NoError(t, err)
 
 		ridMap = map[string]int{}
@@ -1281,20 +1281,20 @@ func TestPeerConnection_Simulcast(t *testing.T) {
 		assert.Equal(t, "b", parameters.Encodings[1].RID)
 		assert.Equal(t, "c", parameters.Encodings[2].RID)
 
-		var midId, ridId, rsidId uint8
+		var midID, ridID, rsidID uint8
 		for _, extension := range sender.GetParameters().HeaderExtensions {
 			switch extension.URI {
 			case sdp.SDESMidURI:
-				midId = uint8(extension.ID)
+				midID = uint8(extension.ID)
 			case sdp.SDESRTPStreamIDURI:
-				ridId = uint8(extension.ID)
+				ridID = uint8(extension.ID)
 			case sdesRepairRTPStreamIDURI:
-				rsidId = uint8(extension.ID)
+				rsidID = uint8(extension.ID)
 			}
 		}
-		assert.NotZero(t, midId)
-		assert.NotZero(t, ridId)
-		assert.NotZero(t, rsidId)
+		assert.NotZero(t, midID)
+		assert.NotZero(t, ridID)
+		assert.NotZero(t, rsidID)
 
 		assert.NoError(t, signalPair(pcOffer, pcAnswer))
 
@@ -1308,24 +1308,24 @@ func TestPeerConnection_Simulcast(t *testing.T) {
 					SequenceNumber: sequenceNumber,
 					PayloadType:    96,
 				}
-				assert.NoError(t, header.SetExtension(midId, []byte("0")))
+				assert.NoError(t, header.SetExtension(midID, []byte("0")))
 
 				// Send RSID for first 10 packets
 				if sequenceNumber >= 10 {
-					assert.NoError(t, header.SetExtension(ridId, []byte(rid)))
+					assert.NoError(t, header.SetExtension(ridID, []byte(rid)))
 				} else {
-					assert.NoError(t, header.SetExtension(rsidId, []byte(rid)))
+					assert.NoError(t, header.SetExtension(rsidID, []byte(rid)))
 					header.SSRC += 10
 				}
 
 				var writer *TrackLocalStaticRTP
 				switch rid {
 				case "a":
-					writer = vp8Writer_a
+					writer = vp8WriterA
 				case "b":
-					writer = vp8Writer_b
+					writer = vp8WriterB
 				case "c":
-					writer = vp8Writer_c
+					writer = vp8WriterC
 				}
 				_, err = writer.bindings[0].writeStream.WriteRTP(header, []byte{0x00})
 				assert.NoError(t, err)
