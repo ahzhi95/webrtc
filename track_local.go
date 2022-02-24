@@ -1,6 +1,9 @@
 package webrtc
 
-import "github.com/pion/rtp"
+import (
+	"github.com/pion/interceptor"
+	"github.com/pion/rtp"
+)
 
 // TrackLocalWriter is the Writer for outbound RTP Packets
 type TrackLocalWriter interface {
@@ -14,10 +17,11 @@ type TrackLocalWriter interface {
 // TrackLocalContext is the Context passed when a TrackLocal has been Binded/Unbinded from a PeerConnection, and used
 // in Interceptors.
 type TrackLocalContext struct {
-	id          string
-	params      RTPParameters
-	ssrc        SSRC
-	writeStream TrackLocalWriter
+	id              string
+	params          RTPParameters
+	ssrc            SSRC
+	writeStream     TrackLocalWriter
+	rtcpInterceptor interceptor.RTCPReader
 }
 
 // CodecParameters returns the negotiated RTPCodecParameters. These are the codecs supported by both

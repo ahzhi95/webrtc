@@ -256,10 +256,11 @@ func (r *RTPSender) ReplaceTrack(track TrackLocal) error {
 	}
 
 	codec, err := track.Bind(TrackLocalContext{
-		id:          context.id,
-		params:      r.api.mediaEngine.getRTPParametersByKind(track.Kind(), []RTPTransceiverDirection{RTPTransceiverDirectionSendonly}),
-		ssrc:        context.ssrc,
-		writeStream: context.writeStream,
+		id:              context.id,
+		params:          r.api.mediaEngine.getRTPParametersByKind(track.Kind(), []RTPTransceiverDirection{RTPTransceiverDirectionSendonly}),
+		ssrc:            context.ssrc,
+		writeStream:     context.writeStream,
+		rtcpInterceptor: context.rtcpInterceptor,
 	})
 	if err != nil {
 		// Re-bind the original track
@@ -294,10 +295,11 @@ func (r *RTPSender) Send(parameters RTPSendParameters) error {
 	for idx, trackEncoding := range r.trackEncodings {
 		writeStream := &interceptorToTrackLocalWriter{}
 		trackEncoding.context = TrackLocalContext{
-			id:          r.id,
-			params:      r.api.mediaEngine.getRTPParametersByKind(trackEncoding.track.Kind(), []RTPTransceiverDirection{RTPTransceiverDirectionSendonly}),
-			ssrc:        parameters.Encodings[idx].SSRC,
-			writeStream: writeStream,
+			id:              r.id,
+			params:          r.api.mediaEngine.getRTPParametersByKind(trackEncoding.track.Kind(), []RTPTransceiverDirection{RTPTransceiverDirectionSendonly}),
+			ssrc:            parameters.Encodings[idx].SSRC,
+			writeStream:     writeStream,
+			rtcpInterceptor: trackEncoding.rtcpInterceptor,
 		}
 
 		codec, err := trackEncoding.track.Bind(trackEncoding.context)
