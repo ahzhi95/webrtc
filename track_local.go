@@ -53,6 +53,11 @@ func (t *TrackLocalContext) ID() string {
 	return t.id
 }
 
+// RTCPReader returns the RTCP interceptor for this TrackLocal. Used to read RTCP of this TrackLocal.
+func (t *TrackLocalContext) RTCPReader() interceptor.RTCPReader {
+	return t.rtcpInterceptor
+}
+
 // TrackLocal is an interface that controls how the user can send media
 // The user can provide their own TrackLocal implementations, or use
 // the implementations in pkg/media
