@@ -405,9 +405,78 @@ func (a *App) handleDeletePhoto(w http.ResponseWriter, r *http.Request) {
 
 // ---------- notification ----------
 
-// notifyPhotos sends one push per parent: "New photos of <their child>".
+// Photos are often uploaded in several rounds, and brothers and sisters appear in different ones.
+// New-photo notices are held for two minutes and sent per parent with a count for each child:
+// "新照片：林小红 3 张、林小华 2 张".
+const photoBatchDelay = 2 * time.Minute
+
+type photoBatch struct {
+	order  []string
+	counts map[string]int
+}
+
+// notifyPhotos queues count new photos for each parent of the given students.
 func (n *Notifier) notifyPhotos(studentIDs []int64, count int) {
-	n.notifyParents(studentIDs, "新照片 / New photos", func(names string) string {
-		return fmt.Sprintf("老师上传了 %d 张 %s 的照片\n%d new photo(s) of %s", count, names, count, names)
-	}, "/#photos", "photos")
+	type kid struct {
+		parent int64
+		name   string
+	}
+	var found []kid
+	for _, sid := range studentIDs {
+		rows, err := n.db.Query(`SELECT u.id, s.name FROM parent_students ps JOIN users u ON u.id = ps.parent_id
+			JOIN students s ON s.id = ps.student_id WHERE ps.student_id = ? AND u.disabled = 0`, sid)
+		if err != nil {
+			logError(err)
+			return
+		}
+		for rows.Next() {
+			var k kid
+			if rows.Scan(&k.parent, &k.name) == nil {
+				found = append(found, k)
+			}
+		}
+		rows.Close()
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.photoPending == nil {
+		n.photoPending = map[int64]*photoBatch{}
+	}
+	for _, k := range found {
+		b := n.photoPending[k.parent]
+		if b == nil {
+			b = &photoBatch{counts: map[string]int{}}
+			n.photoPending[k.parent] = b
+			pid := k.parent
+			time.AfterFunc(photoBatchDelay, func() { n.flushPhotos(pid) })
+		}
+		if _, seen := b.counts[k.name]; !seen {
+			b.order = append(b.order, k.name)
+		}
+		b.counts[k.name] += count
+	}
+}
+
+func (n *Notifier) flushPhotos(parentID int64) {
+	n.mu.Lock()
+	b := n.photoPending[parentID]
+	delete(n.photoPending, parentID)
+	n.mu.Unlock()
+	if b == nil || len(b.order) == 0 {
+		return
+	}
+	n.deliver(parentID, 0, "新照片 / New photos", photoMessage(b), "/#photos", "photos", "")
+}
+
+func photoMessage(b *photoBatch) string {
+	if len(b.order) == 1 {
+		name, c := b.order[0], b.counts[b.order[0]]
+		return fmt.Sprintf("老师上传了 %d 张 %s 的照片\n%d new photo(s) of %s", c, name, c, name)
+	}
+	var zh, en []string
+	for _, name := range b.order {
+		zh = append(zh, fmt.Sprintf("%s %d 张", name, b.counts[name]))
+		en = append(en, fmt.Sprintf("%s %d", name, b.counts[name]))
+	}
+	return "新照片：" + strings.Join(zh, "、") + "\nNew photos: " + strings.Join(en, ", ")
 }

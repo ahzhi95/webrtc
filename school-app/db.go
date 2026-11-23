@@ -249,6 +249,16 @@ CREATE TABLE IF NOT EXISTS notice_attachments (
 );
 
 -- Who a published notice went to, and when each of them read it (阅读统计).
+-- Answers to a notice that asks for a reply (e.g. attending the graduation): one per child.
+CREATE TABLE IF NOT EXISTS notice_replies (
+	notice_id  INTEGER NOT NULL REFERENCES announcements(id) ON DELETE CASCADE,
+	student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+	parent_id  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+	answer     TEXT NOT NULL CHECK (answer IN ('yes','no')),
+	replied_at TEXT NOT NULL,
+	PRIMARY KEY (notice_id, student_id)
+);
+
 CREATE TABLE IF NOT EXISTS notice_recipients (
 	notice_id INTEGER NOT NULL REFERENCES announcements(id) ON DELETE CASCADE,
 	user_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -354,6 +364,8 @@ func openDB(path string) (*sql.DB, error) {
 		`ALTER TABLE campuses ADD COLUMN email TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE campuses ADD COLUMN receipt_prefix TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE users ADD COLUMN lang TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE receipts ADD COLUMN batch TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE announcements ADD COLUMN ask_reply INTEGER NOT NULL DEFAULT 0`,
 	} {
 		if _, err := db.Exec(stmt); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			return nil, fmt.Errorf("migrate: %w", err)

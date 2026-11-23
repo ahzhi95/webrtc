@@ -48,6 +48,31 @@ type Announcement struct {
 	Read       bool         `json:"read"`       // parents: have I read it
 	Recipients int          `json:"recipients"` // admins: read statistics
 	ReadCount  int          `json:"read_count"`
+	AskReply   bool         `json:"ask_reply"` // parents answer per child: attending or not
+	// Parents: which of my children it is about, and my answers (student id → "yes" / "no").
+	Children []int64          `json:"children,omitempty"`
+	Replies  map[int64]string `json:"replies,omitempty"`
+	// Admins: how many answered yes / no.
+	ReplyYes int `json:"reply_yes"`
+	ReplyNo  int `json:"reply_no"`
+}
+
+// aboutChildren: which of these children a notice for (campus, class) concerns.
+func aboutChildren(kids []Student, campus, class int64) []int64 {
+	out := []int64{}
+	for _, k := range kids {
+		if (class != 0 && k.ClassID == class) || (class == 0 && (campus == 0 || k.CampusID == campus)) {
+			out = append(out, k.ID)
+		}
+	}
+	return out
+}
+
+// noticeTarget returns the audience of a notice.
+func (a *App) noticeTarget(id int64) (campus, class int64, askReply bool, err error) {
+	err = a.db.QueryRow(`SELECT COALESCE(n.campus_id, c.campus_id, 0), COALESCE(n.class_id,0), n.ask_reply
+		FROM announcements n LEFT JOIN classes c ON c.id = n.class_id WHERE n.id = ?`, id).Scan(&campus, &class, &askReply)
+	return
 }
 
 func (a *App) noticeDir() string { return filepath.Join(a.uploadDir, "notices") }
@@ -96,7 +121,10 @@ func (a *App) handleListAnnouncements(w http.ResponseWriter, r *http.Request) {
 		COALESCE(n.author_id,0), COALESCE(au.name,''), n.created_at, n.publish_at, n.published, n.retracted_at, n.edited_at,
 		(SELECT COUNT(*) FROM notice_recipients nr WHERE nr.notice_id = n.id),
 		(SELECT COUNT(*) FROM notice_recipients nr WHERE nr.notice_id = n.id AND nr.read_at != ''),
-		COALESCE((SELECT nr.read_at != '' FROM notice_recipients nr WHERE nr.notice_id = n.id AND nr.user_id = ?), 1)
+		COALESCE((SELECT nr.read_at != '' FROM notice_recipients nr WHERE nr.notice_id = n.id AND nr.user_id = ?), 1),
+		n.ask_reply,
+		(SELECT COUNT(*) FROM notice_replies x WHERE x.notice_id = n.id AND x.answer = 'yes'),
+		(SELECT COUNT(*) FROM notice_replies x WHERE x.notice_id = n.id AND x.answer = 'no')
 		FROM announcements n LEFT JOIN classes c ON c.id = n.class_id
 		LEFT JOIN campuses cp ON cp.id = COALESCE(n.campus_id, c.campus_id) LEFT JOIN users au ON au.id = n.author_id`
 	args := []any{u.ID}
@@ -122,19 +150,48 @@ func (a *App) handleListAnnouncements(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var n Announcement
 		if err := rows.Scan(&n.ID, &n.Title, &n.Body, &n.CampusID, &n.CampusName, &n.ClassID, &n.ClassName, &n.AuthorID, &n.AuthorName,
-			&n.CreatedAt, &n.PublishAt, &n.Published, &n.Retracted, &n.EditedAt, &n.Recipients, &n.ReadCount, &n.Read); err != nil {
+			&n.CreatedAt, &n.PublishAt, &n.Published, &n.Retracted, &n.EditedAt, &n.Recipients, &n.ReadCount, &n.Read, &n.AskReply, &n.ReplyYes, &n.ReplyNo); err != nil {
 			rows.Close()
 			serverError(w, err)
 			return
 		}
 		n.Files = []NoticeFile{}
 		if u.Role != "admin" {
-			n.Recipients, n.ReadCount = 0, 0
+			n.Recipients, n.ReadCount, n.ReplyYes, n.ReplyNo = 0, 0, 0, 0
 		}
 		index[n.ID] = len(list)
 		list = append(list, n)
 	}
 	rows.Close()
+	if u.Role == "parent" {
+		kids, err := a.queryStudents(`WHERE s.id IN (SELECT student_id FROM parent_students WHERE parent_id = ?)`, u.ID)
+		if err != nil {
+			serverError(w, err)
+			return
+		}
+		for i := range list {
+			list[i].Children = aboutChildren(kids, list[i].CampusID, list[i].ClassID)
+		}
+		rr, err := a.db.Query(`SELECT notice_id, student_id, answer FROM notice_replies
+			WHERE student_id IN (SELECT student_id FROM parent_students WHERE parent_id = ?)`, u.ID)
+		if err != nil {
+			serverError(w, err)
+			return
+		}
+		for rr.Next() {
+			var nid, sid int64
+			var ans string
+			if rr.Scan(&nid, &sid, &ans) == nil {
+				if i, ok := index[nid]; ok {
+					if list[i].Replies == nil {
+						list[i].Replies = map[int64]string{}
+					}
+					list[i].Replies[sid] = ans
+				}
+			}
+		}
+		rr.Close()
+	}
 	files, err := a.db.Query(`SELECT id, notice_id, orig_name, file_type, size_bytes FROM notice_attachments ORDER BY id`)
 	if err != nil {
 		serverError(w, err)
@@ -158,6 +215,7 @@ type noticeForm struct {
 	CampusID, ClassID int64
 	PublishAt         time.Time // zero = now
 	Remove            []int64
+	AskReply          bool
 }
 
 // readNoticeForm parses the multipart form shared by create and edit.
@@ -170,6 +228,7 @@ func (a *App) readNoticeForm(w http.ResponseWriter, r *http.Request) (*noticeFor
 	f := &noticeForm{Title: strings.TrimSpace(r.FormValue("title")), Body: strings.TrimSpace(r.FormValue("body"))}
 	f.CampusID, _ = strconv.ParseInt(r.FormValue("campus_id"), 10, 64)
 	f.ClassID, _ = strconv.ParseInt(r.FormValue("class_id"), 10, 64)
+	f.AskReply = r.FormValue("ask_reply") == "1"
 	if f.Title == "" || f.Body == "" {
 		httpError(w, http.StatusBadRequest, "title and content are required")
 		return nil, false
@@ -301,8 +360,8 @@ func (a *App) handleCreateAnnouncement(w http.ResponseWriter, r *http.Request) {
 	if !f.PublishAt.IsZero() {
 		publishAt, published = f.PublishAt.Format(time.RFC3339), false
 	}
-	res, err := a.db.Exec(`INSERT INTO announcements (title, body, campus_id, class_id, author_id, created_at, publish_at, published)
-		VALUES (?,?,?,?,?,?,?,0)`, f.Title, f.Body, nullInt(f.CampusID), nullInt(f.ClassID), u.ID, publishAt, publishAt)
+	res, err := a.db.Exec(`INSERT INTO announcements (title, body, campus_id, class_id, author_id, created_at, publish_at, published, ask_reply)
+		VALUES (?,?,?,?,?,?,?,0,?)`, f.Title, f.Body, nullInt(f.CampusID), nullInt(f.ClassID), u.ID, publishAt, publishAt, f.AskReply)
 	if err != nil {
 		serverError(w, err)
 		return
@@ -366,9 +425,29 @@ func (a *App) publishNotice(id int64) {
 	for _, pid := range parents {
 		_, _ = a.db.Exec(`INSERT OR IGNORE INTO notice_recipients (notice_id, user_id) VALUES (?,?)`, id, pid)
 	}
+	_, _, askReply, _ := a.noticeTarget(id)
 	go func() {
 		for _, pid := range parents {
-			a.notifier.deliver(pid, 0, "📢 "+title, preview, "/#notices", ref, ref)
+			body := preview
+			// For a family with several children, say which of them it is about.
+			if kids, err := a.queryStudents(`WHERE s.id IN (SELECT student_id FROM parent_students WHERE parent_id = ?)`, pid); err == nil && len(kids) > 1 {
+				about := aboutChildren(kids, campus, class)
+				var names []string
+				for _, k := range kids {
+					for _, id := range about {
+						if k.ID == id {
+							names = append(names, k.Name)
+						}
+					}
+				}
+				if len(names) > 0 {
+					body = "关于 About: " + strings.Join(names, "、") + "\n" + body
+				}
+			}
+			if askReply {
+				body += "\n请在 App 回复 · Please reply in the app"
+			}
+			a.notifier.deliver(pid, 0, "📢 "+title, body, "/#notices", ref, ref)
 		}
 	}()
 }
@@ -433,7 +512,7 @@ func (a *App) handleUpdateAnnouncement(w http.ResponseWriter, r *http.Request) {
 	}
 	if published {
 		// Already sent: the text and files can be corrected, the audience cannot change.
-		_, err := a.db.Exec(`UPDATE announcements SET title = ?, body = ?, edited_at = ? WHERE id = ?`, f.Title, f.Body, a.nowStr(), id)
+		_, err := a.db.Exec(`UPDATE announcements SET title = ?, body = ?, edited_at = ?, ask_reply = ? WHERE id = ?`, f.Title, f.Body, a.nowStr(), f.AskReply, id)
 		if err != nil {
 			serverError(w, err)
 			return
@@ -448,8 +527,8 @@ func (a *App) handleUpdateAnnouncement(w http.ResponseWriter, r *http.Request) {
 	if !f.PublishAt.IsZero() {
 		publishAt = f.PublishAt.Format(time.RFC3339)
 	}
-	if _, err := a.db.Exec(`UPDATE announcements SET title = ?, body = ?, campus_id = ?, class_id = ?, publish_at = ?, created_at = ? WHERE id = ?`,
-		f.Title, f.Body, nullInt(f.CampusID), nullInt(f.ClassID), publishAt, publishAt, id); err != nil {
+	if _, err := a.db.Exec(`UPDATE announcements SET title = ?, body = ?, campus_id = ?, class_id = ?, publish_at = ?, created_at = ?, ask_reply = ? WHERE id = ?`,
+		f.Title, f.Body, nullInt(f.CampusID), nullInt(f.ClassID), publishAt, publishAt, f.AskReply, id); err != nil {
 		serverError(w, err)
 		return
 	}
@@ -594,4 +673,98 @@ func urlEscape(s string) string {
 		}
 	}
 	return b.String()
+}
+
+// handleNoticeReply: a parent answers for one child (attending or not). The answer can be changed.
+func (a *App) handleNoticeReply(w http.ResponseWriter, r *http.Request) {
+	u := currentUser(r)
+	id, ok := pathID(r, "id")
+	if !ok || !a.canReadNotice(u, id) {
+		httpError(w, http.StatusForbidden, "permission denied")
+		return
+	}
+	var req struct {
+		StudentID int64  `json:"student_id"`
+		Answer    string `json:"answer"`
+	}
+	if !readJSON(w, r, &req) {
+		return
+	}
+	if req.Answer != "yes" && req.Answer != "no" {
+		httpError(w, http.StatusBadRequest, "invalid request")
+		return
+	}
+	campus, class, askReply, err := a.noticeTarget(id)
+	if err != nil || !askReply || !a.parentOwns(u.ID, req.StudentID) {
+		httpError(w, http.StatusForbidden, "permission denied")
+		return
+	}
+	kids, err := a.queryStudents(`WHERE s.id = ?`, req.StudentID)
+	if err != nil || len(kids) == 0 || len(aboutChildren(kids, campus, class)) == 0 {
+		httpError(w, http.StatusForbidden, "permission denied")
+		return
+	}
+	if _, err := a.db.Exec(`INSERT INTO notice_replies (notice_id, student_id, parent_id, answer, replied_at) VALUES (?,?,?,?,?)
+		ON CONFLICT(notice_id, student_id) DO UPDATE SET answer = excluded.answer, parent_id = excluded.parent_id, replied_at = excluded.replied_at`,
+		id, req.StudentID, u.ID, req.Answer, a.nowStr()); err != nil {
+		serverError(w, err)
+		return
+	}
+	okJSON(w)
+}
+
+// handleNoticeReplies: every child the notice is about, with the answer (or none yet).
+func (a *App) handleNoticeReplies(w http.ResponseWriter, r *http.Request) {
+	u := currentUser(r)
+	id, ok := pathID(r, "id")
+	if !ok || !a.canManageNotice(u, id) {
+		httpError(w, http.StatusForbidden, "permission denied")
+		return
+	}
+	campus, class, _, err := a.noticeTarget(id)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	where, args := "WHERE 1=1", []any{}
+	switch {
+	case class != 0:
+		where, args = "WHERE s.class_id = ?", []any{class}
+	case campus != 0:
+		where, args = "WHERE c.campus_id = ?", []any{campus}
+	}
+	kids, err := a.queryStudents(where, args...)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	type reply struct {
+		StudentID int64  `json:"student_id"`
+		Name      string `json:"name"`
+		ClassName string `json:"class_name"`
+		Answer    string `json:"answer"`
+		By        string `json:"by"`
+		At        string `json:"at"`
+	}
+	answers := map[int64]reply{}
+	rows, err := a.db.Query(`SELECT x.student_id, x.answer, COALESCE(p.name,''), x.replied_at FROM notice_replies x
+		LEFT JOIN users p ON p.id = x.parent_id WHERE x.notice_id = ?`, id)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	for rows.Next() {
+		var x reply
+		if rows.Scan(&x.StudentID, &x.Answer, &x.By, &x.At) == nil {
+			answers[x.StudentID] = x
+		}
+	}
+	rows.Close()
+	list := []reply{}
+	for _, k := range kids {
+		x := answers[k.ID]
+		x.StudentID, x.Name, x.ClassName = k.ID, k.Name, k.ClassName
+		list = append(list, x)
+	}
+	writeJSON(w, list)
 }

@@ -18,9 +18,33 @@ async function shrinkImage(file, maxSide = 1920) {
 
 const photoSrc = (p, size) => `/api/photos/${p.id}/image${size ? '?size=' + size : ''}`;
 
+// For a parent with several children: which of them are in the photo, as small letters in the corner.
+function photoKids(p) {
+  const kids = state.me.user.role === 'parent' ? state.me.children || [] : [];
+  if (kids.length < 2) return null;
+  const marks = kids.map((c, i) => [c, i]).filter(([c]) => p.students.some((s) => s.id === c.id));
+  return marks.length > 0 && h('span', { class: 'p-kids', 'aria-hidden': 'true' }, marks.map(([c, i]) => h('i', { class: 'kid-tag c' + (i % 4) }, givenInitial(c.name))));
+}
+
 function photoGrid(list, onChange) {
-  return h('div', { class: 'pgrid' }, list.map((p, i) => h('button', { class: 'pthumb', 'aria-label': p.caption || t('tab_photos'), onclick: () => openLightbox(list, i, onChange) },
-    h('img', { src: photoSrc(p, 'thumb'), alt: '', loading: 'lazy' }))));
+  return h('div', { class: 'pgrid' }, list.map((p, i) => h('button', { class: 'pthumb', 'aria-label': [p.caption || t('tab_photos'), ...p.students.map((s) => s.name)].join(' · '), onclick: () => openLightbox(list, i, onChange) },
+    h('img', { src: photoSrc(p, 'thumb'), alt: '', loading: 'lazy' }), photoKids(p))));
+}
+
+// Short name for a chip: the Chinese given name without the surname (林小红 → 小红), else the first word.
+function shortName(name) {
+  const zh = (name || '').match(/[\u3400-\u9fff]+/);
+  if (zh && zh[0].length >= 2) return zh[0].slice(1);
+  return (name || '').trim().split(/\s+/)[0];
+}
+
+// Parent's filter: "all" plus a small avatar chip for each child.
+function kidChips(selected, onPick) {
+  const kids = state.me.children || [];
+  return h('div', { class: 'kid-chips', role: 'group' },
+    h('button', { class: 'kid-chip' + (!selected ? ' on' : ''), 'aria-pressed': String(!selected), onclick: () => onPick('') }, t('all')),
+    kids.map((c, i) => h('button', { class: 'kid-chip' + (String(c.id) === selected ? ' on' : ''), 'aria-pressed': String(String(c.id) === selected), title: c.name, onclick: () => onPick(String(c.id)) },
+      h('span', { class: 'kid-tag c' + (i % 4), 'aria-hidden': 'true' }, givenInitial(c.name)), shortName(c.name))));
 }
 
 function openLightbox(list, index, onChange) {
@@ -93,10 +117,7 @@ VIEWS.photos = async (main) => {
           .map((s) => h('option', { value: s.id, selected: String(s.id) === photoFilter.studentId }, s.name)))));
   } else {
     const children = state.me.children || [];
-    if (children.length > 1) {
-      parts.push(h('div', { class: 'seg' }, [{ id: '', name: t('allStudents') }, ...children].map((c) =>
-        h('button', { class: String(c.id) === photoFilter.studentId ? 'on' : null, onclick: () => { photoFilter.studentId = String(c.id); rerender(); } }, c.name))));
-    }
+    if (children.length > 1) parts.push(kidChips(photoFilter.studentId, (id) => { photoFilter.studentId = id; rerender(); }));
   }
   parts.push(h('div', { class: 'row' },
     h('select', { class: 'grow', 'aria-label': t('photoTag'), onchange: (e) => { photoFilter.tag = e.target.value; rerender(); } },

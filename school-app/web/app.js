@@ -712,11 +712,59 @@ function noticeFiles(n) {
     docs.map((f) => h('a', { class: 'file-chip', href: src(f), target: '_blank', rel: 'noopener' }, '📄 ', f.name, h('span', { class: 'muted small' }, ` ${Math.max(1, Math.round(f.size / 1024))} KB`))));
 }
 
+// Small letters for the children (of this parent) a notice is about.
+function noticeKids(n) {
+  const kids = state.me.children || [];
+  if (state.me.user.role !== 'parent' || kids.length < 2 || !n.children) return null;
+  return h('span', { class: 'notice-kids', title: kids.filter((c) => n.children.includes(c.id)).map((c) => c.name).join('、') },
+    kids.map((c, i) => n.children.includes(c.id) && h('span', { class: 'kid-tag c' + (i % 4) }, givenInitial(c.name))));
+}
+
+// A notice asking for a reply: one answer per child, which can be changed.
+function replyBox(n) {
+  const kids = (state.me.children || []).filter((c) => (n.children || []).includes(c.id));
+  const box = h('div', { class: 'reply-box' });
+  const draw = () => box.replaceChildren(
+    h('div', { class: 'small', style: 'font-weight:800;margin-bottom:6px' }, '🙋 ', t('replyAsk')),
+    ...kids.map((c) => {
+      const ans = (n.replies || {})[c.id];
+      const pick = async (a) => {
+        if (await run(() => api('POST', `/api/announcements/${n.id}/reply`, { student_id: c.id, answer: a }), t('replySaved'))) {
+          n.replies = { ...(n.replies || {}), [c.id]: a };
+          draw();
+        }
+      };
+      return h('div', { class: 'reply-row' },
+        h('b', { class: 'grow' }, kids.length > 1 ? c.name : t('replyFor', { n: c.name })),
+        h('button', { class: 'btn sm' + (ans === 'yes' ? ' ok on' : ''), 'aria-pressed': String(ans === 'yes'), onclick: () => pick('yes') }, ans === 'yes' ? '✓ ' : '', t('replyYes')),
+        h('button', { class: 'btn sm' + (ans === 'no' ? ' bad on' : ''), 'aria-pressed': String(ans === 'no'), onclick: () => pick('no') }, ans === 'no' ? '✓ ' : '', t('replyNo')));
+    }));
+  draw();
+  return kids.length > 0 && box;
+}
+
+async function noticeReplies(n) {
+  const list = await api('GET', `/api/announcements/${n.id}/replies`);
+  const group = (a) => list.filter((x) => (x.answer || '') === a);
+  const section = (label, items, badge) => items.length > 0 && h('div', {},
+    h('div', { class: 'day-head' }, label, ' (', items.length, ')'),
+    h('ul', { class: 'list' }, items.map((x) => h('li', { class: 'row' },
+      h('div', { class: 'grow' }, h('b', {}, x.name), h('div', { class: 'muted small' }, x.class_name, x.by ? ' · ' + x.by + ' · ' + dateTime(x.at) : '')), badge))));
+  openDialog(t('repliesTitle'), [
+    h('p', { class: 'small muted', style: 'margin-top:0' }, n.title),
+    section('✅ ' + t('replyYes'), group('yes'), h('span', { class: 'badge ok' }, t('replyYes'))),
+    section('❌ ' + t('replyNo'), group('no'), h('span', { class: 'badge bad' }, t('replyNo'))),
+    section('⏳ ' + t('replyNone'), group(''), h('span', { class: 'badge warn' }, t('replyNone'))),
+    !list.length && emptyRow(),
+  ], null);
+}
+
 function noticeItem(n, canManage, onChange) {
   const scheduled = !n.published;
   return h('article', { class: n.retracted_at ? 'is-retracted' : null },
     h('div', { class: 'row' },
       h('h3', { class: 'grow', style: 'margin:0' }, !n.read && h('span', { class: 'badge bad', style: 'margin-right:6px' }, t('newBadge')), n.title),
+      noticeKids(n),
       h('span', { class: 'badge info' }, audienceLabel(n))),
     h('div', { class: 'muted small' },
       scheduled ? h('span', { class: 'badge warn' }, '⏰ ', t('scheduledFor', { t: dateTime(n.publish_at) })) : dateTime(n.created_at),
@@ -725,8 +773,10 @@ function noticeItem(n, canManage, onChange) {
       n.retracted_at && h('span', { class: 'badge bad', style: 'margin-left:6px' }, t('retracted'))),
     h('p', { class: 'pre', style: 'margin:8px 0' }, n.body),
     noticeFiles(n),
+    n.ask_reply && state.me.user.role === 'parent' && !n.retracted_at && replyBox(n),
     canManage && h('div', { class: 'row', style: 'margin-top:8px' },
       n.published && !n.retracted_at && h('button', { class: 'btn sm', onclick: () => noticeReads(n) }, '👁 ', t('readStats', { r: n.read_count, n: n.recipients })),
+      n.ask_reply && n.published && h('button', { class: 'btn sm', onclick: () => noticeReplies(n) }, '🙋 ', t('replyStats', { y: n.reply_yes, n: n.reply_no })),
       h('span', { class: 'spacer' }),
       !n.retracted_at && h('button', { class: 'btn sm', onclick: () => noticeDialog(n, onChange) }, t('edit')),
       !n.retracted_at && h('button', { class: 'btn sm', onclick: async () => {
@@ -762,6 +812,7 @@ async function noticeDialog(n, done) {
   const later = h('input', { type: 'checkbox', checked: !!(n && !n.published), onchange: () => { whenBox.hidden = !later.checked; } });
   const whenBox = h('div', { hidden: !(n && !n.published) }, field(t('publishAt'), when));
   const files = h('input', { type: 'file', multiple: true, accept: 'image/*,application/pdf' });
+  const askReply = h('input', { type: 'checkbox', checked: !!(n && n.ask_reply) });
   const remove = new Set();
   const existing = n && n.files.length ? h('div', { class: 'f' }, h('div', { class: 'small muted' }, t('attachments')),
     n.files.map((f) => h('label', { class: 'row small' }, h('input', { type: 'checkbox', onchange: (e) => { e.target.checked ? remove.add(f.id) : remove.delete(f.id); } }), t('removeFile'), ': ', f.name))) : null;
@@ -769,12 +820,14 @@ async function noticeDialog(n, done) {
     field(t('audience'), aud), fixed && h('p', { class: 'small muted', style: 'margin-top:-6px' }, t('audienceFixed')),
     field(t('title'), title), field(t('content'), body),
     existing, field(t('addAttachments'), files),
+    h('label', { class: 'row small', style: 'margin-bottom:10px' }, askReply, t('askReply')),
     !fixed && h('label', { class: 'row small', style: 'margin-bottom:10px' }, later, t('publishLater')), !fixed && whenBox,
   ], () => run(async () => {
     const fd = new FormData();
     const [kind, id] = aud.value.split(':');
     fd.set('title', title.value); fd.set('body', body.value);
     fd.set('campus_id', kind === 'campus' ? id : '0'); fd.set('class_id', kind === 'class' ? id : '0');
+    if (askReply.checked) fd.set('ask_reply', '1');
     if (!fixed && later.checked) {
       if (!when.value) throw new ApiError(t('pickTime'));
       fd.set('publish_at', when.value);
@@ -787,13 +840,17 @@ async function noticeDialog(n, done) {
   }), n ? t('save') : t('publish'));
 }
 
+let noticeKid = '';
 VIEWS.notices = async (main) => {
   const u = state.me.user;
-  const list = await api('GET', '/api/announcements');
+  const all = await api('GET', '/api/announcements');
   const rerender = () => VIEWS.notices(main);
+  const family = u.role === 'parent' && (state.me.children || []).length > 1;
+  const list = family && noticeKid ? all.filter((n) => (n.children || []).includes(Number(noticeKid))) : all;
   main.replaceChildren(h('div', { class: 'stack' },
     h('div', { class: 'row' }, h('h2', { class: 'grow', style: 'margin:0' }, t('noticesTitle')),
       u.role === 'admin' && h('button', { class: 'btn primary', onclick: () => noticeDialog(null, rerender) }, t('newNotice'))),
+    family && kidChips(noticeKid, (id) => { noticeKid = id; rerender(); }),
     list.length ? list.map((n) => h('section', { class: 'card' + (n.read ? '' : ' unread-card') }, noticeItem(n, u.role === 'admin', rerender))) : h('div', { class: 'card' }, emptyRow())));
   // Opening the list counts as reading the notices on it.
   const unread = list.filter((n) => !n.read).map((n) => n.id);

@@ -49,6 +49,10 @@ type Receipt struct {
 	Fees        []ReceiptFee `json:"fees"`
 	OfficialID  string       `json:"official_id"`
 	OfficialNo  string       `json:"official_no"`
+	Batch       string       `json:"batch,omitempty"`
+	// Other children paid with the same transfer (shown to the school, which reviews them together).
+	BatchWith  []string `json:"batch_with,omitempty"`
+	BatchTotal int64    `json:"batch_total,omitempty"`
 }
 
 func parseAmount(s string) (int64, error) {
@@ -69,46 +73,87 @@ func (a *App) handleUploadReceipt(w http.ResponseWriter, r *http.Request) {
 	defer r.MultipartForm.RemoveAll()
 	u := currentUser(r)
 	studentID, _ := strconv.ParseInt(r.FormValue("student_id"), 10, 64)
-	if !a.parentOwns(u.ID, studentID) {
-		httpError(w, http.StatusForbidden, "permission denied")
-		return
-	}
 
-	// The fees this receipt pays for: must be this child's and not already paid or waiting.
+	// The fees this receipt pays for: the parent's own children's, not already paid or waiting.
+	// One bank transfer may cover several brothers and sisters at the same school.
 	var fees []StudentFee
+	var campus int64
 	for _, v := range r.MultipartForm.Value["fee_id"] {
 		id, err := strconv.ParseInt(v, 10, 64)
 		if err != nil {
 			continue
 		}
-		list, err := a.queryStudentFees(`WHERE sf.id = ? AND sf.student_id = ?`, id, studentID)
+		list, err := a.queryStudentFees(`WHERE sf.id = ?`, id)
 		if err != nil {
 			serverError(w, err)
 			return
 		}
-		if len(list) == 0 || list[0].Status != "unpaid" {
+		if len(list) == 0 || !a.parentOwns(u.ID, list[0].StudentID) || (studentID != 0 && list[0].StudentID != studentID) {
+			httpError(w, http.StatusForbidden, "permission denied")
+			return
+		}
+		if list[0].Status != "unpaid" {
 			httpError(w, http.StatusBadRequest, "fee is not open for payment")
 			return
 		}
+		c, _ := a.feeItemCampus(list[0].FeeItemID)
+		if campus != 0 && c != campus {
+			httpError(w, http.StatusBadRequest, "one payment can only be for one school")
+			return
+		}
+		campus = c
 		fees = append(fees, list[0])
 	}
-
-	desc := strings.TrimSpace(r.FormValue("description"))
-	var feeTotal int64
-	var names []string
-	for _, f := range fees {
-		feeTotal += f.AmountCents
-		names = append(names, f.Name)
-	}
-	if desc == "" {
-		desc = strings.Join(names, "、")
-	}
-	if desc == "" || len(desc) > 300 {
-		httpError(w, http.StatusBadRequest, "description is required")
+	if len(fees) == 0 && !a.parentOwns(u.ID, studentID) {
+		httpError(w, http.StatusForbidden, "permission denied")
 		return
 	}
-	amount := feeTotal
-	if v := strings.TrimSpace(r.FormValue("amount")); v != "" || len(fees) == 0 {
+
+	// Group by child, keeping the order the fees were ticked.
+	type part struct {
+		studentID int64
+		fees      []StudentFee
+	}
+	var parts []*part
+	byStudent := map[int64]*part{}
+	for _, f := range fees {
+		p := byStudent[f.StudentID]
+		if p == nil {
+			p = &part{studentID: f.StudentID}
+			byStudent[f.StudentID] = p
+			parts = append(parts, p)
+		}
+		p.fees = append(p.fees, f)
+	}
+	if len(parts) == 0 {
+		parts = []*part{{studentID: studentID}}
+	}
+
+	note := strings.TrimSpace(r.FormValue("note")) // added to each child's description
+	desc := strings.TrimSpace(r.FormValue("description"))
+	describe := func(p *part) string {
+		var names []string
+		for _, f := range p.fees {
+			names = append(names, f.Name)
+		}
+		d := desc
+		if len(parts) > 1 || d == "" {
+			d = strings.Join(names, "、")
+		}
+		if note != "" {
+			d += " — " + note
+		}
+		return d
+	}
+	for _, p := range parts {
+		if d := describe(p); d == "" || len(d) > 300 {
+			httpError(w, http.StatusBadRequest, "description is required")
+			return
+		}
+	}
+	// A typed amount is only for a single child (e.g. a payment not on the list).
+	var amount int64
+	if v := strings.TrimSpace(r.FormValue("amount")); len(parts) == 1 && (v != "" || len(fees) == 0) {
 		var err error
 		if amount, err = parseAmount(v); err != nil {
 			httpError(w, http.StatusBadRequest, "invalid amount")
@@ -166,24 +211,37 @@ func (a *App) handleUploadReceipt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
-	res, err := tx.Exec(`INSERT INTO receipts (student_id, parent_id, description, amount_cents, file_name, file_type, created_at)
-		VALUES (?,?,?,?,?,?,?)`, studentID, u.ID, desc, amount, name, ctype, a.nowStr())
-	if err != nil {
-		os.Remove(out.Name())
-		serverError(w, err)
-		return
+	batch := ""
+	if len(parts) > 1 {
+		batch = randomToken(8)
 	}
-	rid, _ := res.LastInsertId()
-	for _, f := range fees {
-		if _, err := tx.Exec(`INSERT INTO receipt_fees (receipt_id, student_fee_id) VALUES (?,?)`, rid, f.ID); err != nil {
+	for _, p := range parts {
+		amt := amount
+		if len(p.fees) > 0 && (amt == 0 || len(parts) > 1) {
+			amt = 0
+			for _, f := range p.fees {
+				amt += f.AmountCents
+			}
+		}
+		res, err := tx.Exec(`INSERT INTO receipts (student_id, parent_id, description, amount_cents, file_name, file_type, created_at, batch)
+			VALUES (?,?,?,?,?,?,?,?)`, p.studentID, u.ID, describe(p), amt, name, ctype, a.nowStr(), batch)
+		if err != nil {
 			os.Remove(out.Name())
 			serverError(w, err)
 			return
 		}
-		if _, err := tx.Exec(`UPDATE student_fees SET status = 'pending' WHERE id = ?`, f.ID); err != nil {
-			os.Remove(out.Name())
-			serverError(w, err)
-			return
+		rid, _ := res.LastInsertId()
+		for _, f := range p.fees {
+			if _, err := tx.Exec(`INSERT INTO receipt_fees (receipt_id, student_fee_id) VALUES (?,?)`, rid, f.ID); err != nil {
+				os.Remove(out.Name())
+				serverError(w, err)
+				return
+			}
+			if _, err := tx.Exec(`UPDATE student_fees SET status = 'pending' WHERE id = ?`, f.ID); err != nil {
+				os.Remove(out.Name())
+				serverError(w, err)
+				return
+			}
 		}
 	}
 	if err := tx.Commit(); err != nil {
@@ -198,7 +256,7 @@ func (a *App) handleListReceipts(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
 	q := `SELECT rc.id, rc.student_id, s.name, COALESCE(c.name,''), COALESCE(cp.name,''), COALESCE(p.name,''), COALESCE(p.phone,''),
 		rc.description, rc.amount_cents, rc.file_type, rc.status, rc.review_note, COALESCE(rv.name,''),
-		COALESCE(rc.reviewed_at,''), rc.created_at
+		COALESCE(rc.reviewed_at,''), rc.created_at, rc.batch
 		FROM receipts rc JOIN students s ON s.id = rc.student_id LEFT JOIN classes c ON c.id = s.class_id
 		LEFT JOIN campuses cp ON cp.id = c.campus_id
 		LEFT JOIN users p ON p.id = rc.parent_id LEFT JOIN users rv ON rv.id = rc.reviewed_by WHERE 1=1`
@@ -228,7 +286,7 @@ func (a *App) handleListReceipts(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var x Receipt
 		if err := rows.Scan(&x.ID, &x.StudentID, &x.StudentName, &x.ClassName, &x.CampusName, &x.ParentName, &x.ParentPhone,
-			&x.Description, &x.AmountCents, &x.FileType, &x.Status, &x.ReviewNote, &x.ReviewedBy, &x.ReviewedAt, &x.CreatedAt); err != nil {
+			&x.Description, &x.AmountCents, &x.FileType, &x.Status, &x.ReviewNote, &x.ReviewedBy, &x.ReviewedAt, &x.CreatedAt, &x.Batch); err != nil {
 			rows.Close()
 			serverError(w, err)
 			return
@@ -241,6 +299,27 @@ func (a *App) handleListReceipts(w http.ResponseWriter, r *http.Request) {
 	ids := make([]int64, len(list))
 	for i, x := range list {
 		ids[i] = x.ID
+	}
+	for i, x := range list {
+		if x.Batch == "" {
+			continue
+		}
+		rows, err := a.db.Query(`SELECT r.id, s.name, r.amount_cents FROM receipts r JOIN students s ON s.id = r.student_id WHERE r.batch = ?`, x.Batch)
+		if err != nil {
+			serverError(w, err)
+			return
+		}
+		for rows.Next() {
+			var rid, amt int64
+			var sn string
+			if rows.Scan(&rid, &sn, &amt) == nil {
+				list[i].BatchTotal += amt
+				if rid != x.ID {
+					list[i].BatchWith = append(list[i].BatchWith, sn)
+				}
+			}
+		}
+		rows.Close()
 	}
 	for up, v := range a.receiptIDsForUploads(ids) {
 		list[index[up]].OfficialID, list[index[up]].OfficialNo = v[0], v[1]
@@ -301,11 +380,38 @@ func (a *App) handleReviewReceipt(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
 	id, ok := pathID(r, "id")
 	var studentID int64
-	var desc string
-	if !ok || a.db.QueryRow(`SELECT student_id, description FROM receipts WHERE id = ?`, id).Scan(&studentID, &desc) != nil ||
+	var desc, batch string
+	if !ok || a.db.QueryRow(`SELECT student_id, description, batch FROM receipts WHERE id = ?`, id).Scan(&studentID, &desc, &batch) != nil ||
 		!a.canAccessStudent(u, studentID) {
 		httpError(w, http.StatusForbidden, "permission denied")
 		return
+	}
+	// One transfer for brothers and sisters: the school confirms or returns it as a whole,
+	// and each child still gets its own official receipt.
+	ids, students, descs := []int64{id}, []int64{studentID}, []string{desc}
+	if batch != "" {
+		ids, students, descs = nil, nil, nil
+		rows, err := a.db.Query(`SELECT r.id, r.student_id, r.description, s.name FROM receipts r JOIN students s ON s.id = r.student_id
+			WHERE r.batch = ? ORDER BY r.id`, batch)
+		if err != nil {
+			serverError(w, err)
+			return
+		}
+		for rows.Next() {
+			var rid, sid int64
+			var d, sn string
+			if rows.Scan(&rid, &sid, &d, &sn) == nil {
+				ids, students, descs = append(ids, rid), append(students, sid), append(descs, sn+"："+d)
+			}
+		}
+		rows.Close()
+		for _, sid := range students {
+			if !a.canAccessStudent(u, sid) {
+				httpError(w, http.StatusForbidden, "permission denied")
+				return
+			}
+		}
+		desc = strings.Join(descs, "；")
 	}
 	var req struct {
 		Status string `json:"status"`
@@ -329,31 +435,33 @@ func (a *App) handleReviewReceipt(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`UPDATE receipts SET status = ?, review_note = ?, reviewed_by = ?, reviewed_at = ? WHERE id = ?`,
-		req.Status, req.Note, u.ID, a.nowStr(), id); err != nil {
-		serverError(w, err)
-		return
-	}
-	// The fees on this receipt follow its outcome.
 	feeStatus, paidAt := map[string]string{"approved": "paid", "rejected": "unpaid", "pending": "pending"}[req.Status], ""
 	if feeStatus == "paid" {
 		paidAt = a.nowStr()
 	}
-	if _, err := tx.Exec(`UPDATE student_fees SET status = ?, paid_at = ?
-		WHERE id IN (SELECT student_fee_id FROM receipt_fees WHERE receipt_id = ?) AND status != 'waived'`, feeStatus, paidAt, id); err != nil {
-		serverError(w, err)
-		return
-	}
-	// Approving issues the official receipt; undoing an approval voids it.
-	if req.Status == "approved" {
-		err = a.issueForUpload(tx, id, u.ID)
-	} else {
-		err = a.voidReceipts(tx, u.ID, "付款凭证已改为"+map[string]string{"rejected": "退回", "pending": "待确认"}[req.Status]+" / payment proof "+req.Status,
-			"r.upload_id = ?", id)
-	}
-	if err != nil {
-		serverError(w, err)
-		return
+	for _, rid := range ids {
+		if _, err := tx.Exec(`UPDATE receipts SET status = ?, review_note = ?, reviewed_by = ?, reviewed_at = ? WHERE id = ?`,
+			req.Status, req.Note, u.ID, a.nowStr(), rid); err != nil {
+			serverError(w, err)
+			return
+		}
+		// The fees on this receipt follow its outcome.
+		if _, err := tx.Exec(`UPDATE student_fees SET status = ?, paid_at = ?
+			WHERE id IN (SELECT student_fee_id FROM receipt_fees WHERE receipt_id = ?) AND status != 'waived'`, feeStatus, paidAt, rid); err != nil {
+			serverError(w, err)
+			return
+		}
+		// Approving issues the official receipt; undoing an approval voids it.
+		if req.Status == "approved" {
+			err = a.issueForUpload(tx, rid, u.ID)
+		} else {
+			err = a.voidReceipts(tx, u.ID, "付款凭证已改为"+map[string]string{"rejected": "退回", "pending": "待确认"}[req.Status]+" / payment proof "+req.Status,
+				"r.upload_id = ?", rid)
+		}
+		if err != nil {
+			serverError(w, err)
+			return
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		serverError(w, err)
@@ -364,7 +472,7 @@ func (a *App) handleReviewReceipt(w http.ResponseWriter, r *http.Request) {
 		if req.Status == "rejected" {
 			title, body = "缴费凭证被退回 / Receipt returned", desc+"\n原因 Reason: "+req.Note
 		}
-		go a.notifier.notifyParents([]int64{studentID}, title, func(string) string { return body }, "/#receipts", fmt.Sprintf("receipt-%d", id))
+		go a.notifier.notifyParents(students, title, func(string) string { return body }, "/#receipts", fmt.Sprintf("receipt-%d", id))
 	}
 	okJSON(w)
 }

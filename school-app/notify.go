@@ -24,8 +24,9 @@ type Notifier struct {
 	client     *http.Client
 	loc        *time.Location // school time zone for stored timestamps
 
-	mu      sync.Mutex
-	pending map[string][]attEntry // "parentID/mode" → arrivals or departures waiting to be sent together
+	mu           sync.Mutex
+	pending      map[string][]attEntry // "parentID/mode" → arrivals or departures waiting to be sent together
+	photoPending map[int64]*photoBatch // parentID → new photos waiting to be announced
 }
 
 func (n *Notifier) nowStr() string {

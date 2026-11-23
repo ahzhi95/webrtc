@@ -484,3 +484,33 @@ main > * { animation: rise .28s ease both; }
 .chip.late { background: var(--warn-soft); color: var(--warn); }
 .chip.out { background: var(--info-soft); color: var(--info); }
 .chip.none { background: var(--surface-2); color: var(--muted); }
+
+/* Fees for families: total due, a small letter for each child */
+.due-sum { background: var(--primary); color: var(--primary-text); border-radius: 20px; padding: 16px 18px; }
+.due-sum .big { font-size: 28px; font-weight: 900; letter-spacing: -.01em; }
+.due-sum .small { opacity: .85; }
+.kid-tag { flex: none; width: 26px; height: 26px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 12.5px; font-weight: 900; color: #3b3858; }
+.kid-tag.c0 { background: var(--mint); } .kid-tag.c1 { background: var(--cream); } .kid-tag.c2 { background: #f3c9c4; } .kid-tag.c3 { background: #d9d6f2; }
+.batch-note { background: var(--info-soft); color: var(--info); border-radius: 10px; padding: 6px 10px; margin-top: 8px; font-weight: 700; }
+
+/* Parent filters: a chip per child */
+.kid-chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+.kid-chip { flex: none; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  border-radius: 999px; padding: 4px 12px 4px 4px; font: inherit; font-weight: 800; font-size: 14px; cursor: pointer; min-height: 36px; }
+.kid-chip:first-child { padding-left: 14px; }
+.kid-chip.on { background: var(--primary); color: var(--primary-text); border-color: var(--primary); }
+/* Which of my children are in a photo */
+.pthumb { position: relative; }
+.p-kids { position: absolute; left: 5px; bottom: 5px; display: flex; gap: 3px; }
+.p-kids .kid-tag { width: 22px; height: 22px; font-size: 11px; font-style: normal; border: 2px solid #fff; }
+
+/* Notices: which of my children, and the reply buttons */
+.notice-kids { display: inline-flex; gap: 3px; flex: none; }
+.notice-kids .kid-tag { width: 24px; height: 24px; font-size: 11.5px; }
+.reply-box { background: var(--surface-2); border-radius: 14px; padding: 10px 12px; margin-top: 10px; }
+.reply-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 4px 0; }
+.reply-row .btn.on { font-weight: 900; }
+.reply-row .btn.bad.on { background: var(--bad-soft); border-color: var(--bad); }
+.reply-row b { flex-basis: 100%; }
+.reply-row .btn { flex: 1; }
+.reply-row + .reply-row { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 8px; }

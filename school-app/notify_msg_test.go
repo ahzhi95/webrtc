@@ -23,3 +23,14 @@ func TestAttendanceMessage(t *testing.T) {
 		t.Fatal(out)
 	}
 }
+
+func TestPhotoMessage(t *testing.T) {
+	one := photoMessage(&photoBatch{order: []string{"小红"}, counts: map[string]int{"小红": 3}})
+	if !strings.HasPrefix(one, "老师上传了 3 张 小红 的照片") {
+		t.Fatal(one)
+	}
+	two := photoMessage(&photoBatch{order: []string{"小红", "小华"}, counts: map[string]int{"小红": 3, "小华": 2}})
+	if !strings.HasPrefix(two, "新照片：小红 3 张、小华 2 张") {
+		t.Fatal(two)
+	}
+}

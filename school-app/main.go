@@ -171,6 +171,8 @@ func (a *App) routes() http.Handler {
 	mux.Handle("PUT /api/announcements/{id}", a.auth(a.handleUpdateAnnouncement, "admin"))
 	mux.Handle("POST /api/announcements/{id}/retract", a.auth(a.handleRetractAnnouncement, "admin"))
 	mux.Handle("GET /api/announcements/{id}/reads", a.auth(a.handleNoticeReads, "admin"))
+	mux.Handle("GET /api/announcements/{id}/replies", a.auth(a.handleNoticeReplies, "admin"))
+	mux.Handle("POST /api/announcements/{id}/reply", a.auth(a.handleNoticeReply, "parent"))
 	mux.Handle("GET /api/announcements/{id}/files/{fid}", a.auth(a.handleNoticeFile))
 	mux.Handle("POST /api/announcements/read", a.auth(a.handleMarkNoticesRead, "parent"))
 	mux.Handle("GET /api/overview", a.auth(a.handleOverview, "admin"))

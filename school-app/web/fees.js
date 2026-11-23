@@ -27,44 +27,69 @@ async function parentFees(main) {
   const [fees, receipts] = await Promise.all([api('GET', '/api/fees'), api('GET', '/api/receipts')]);
   const parts = [h('h2', {}, t('feesTitle'))];
   if (!children.length) parts.push(h('div', { class: 'card empty' }, t('noChildren')));
+  const family = children.length > 1;
+  const kid = new Map(children.map((c, i) => [c.id, { ...c, i }]));
+  const kidTag = (id) => family && kid.has(id) && h('span', { class: 'kid-tag c' + (kid.get(id).i % 4), 'aria-hidden': 'true' }, givenInitial(kid.get(id).name));
 
+  // What the whole family still has to pay.
+  const unpaidAll = fees.filter((f) => f.status === 'unpaid');
+  const pendingAll = fees.filter((f) => f.status === 'pending');
+  if (children.length && (unpaidAll.length || pendingAll.length)) {
+    parts.push(h('section', { class: 'due-sum' },
+      h('div', { class: 'small' }, family ? t('familyDue') : t('toPay'), ' · ', t('nItems', { n: unpaidAll.length })),
+      h('div', { class: 'big' }, money(unpaidAll.reduce((s, f) => s + f.amount_cents, 0))),
+      pendingAll.length > 0 && h('div', { class: 'small' }, '⏳ ', t('pendingConfirmN', { n: pendingAll.length }))));
+  }
+
+  // One card per school: brothers and sisters at the same school can be paid with one transfer.
+  const schools = [];
   for (const c of children) {
-    const mine = fees.filter((f) => f.student_id === c.id);
+    let sc = schools.find((x) => x.id === c.campus_id);
+    if (!sc) schools.push(sc = { id: c.campus_id, name: c.campus_name, kids: [] });
+    sc.kids.push(c);
+  }
+  for (const sc of schools) {
+    const ids = new Set(sc.kids.map((c) => c.id));
+    const mine = fees.filter((f) => ids.has(f.student_id));
     const open = mine.filter((f) => f.status === 'unpaid' || f.status === 'pending');
     const done = mine.filter((f) => f.status === 'paid' || f.status === 'waived');
+    const clear = sc.kids.filter((c) => !open.some((f) => f.student_id === c.id));
     const picked = new Set();
-    const total = h('b', {}, money(0));
     const file = h('input', { type: 'file', required: true, accept: 'image/jpeg,image/png,image/webp,application/pdf' });
     const note = h('input', { type: 'text', maxlength: 200, placeholder: t('payNotePh') });
-    const btn = h('button', { class: 'btn primary block', type: 'submit' }, t('uploadForSelected'));
+    const btn = h('button', { class: 'btn primary block', type: 'submit' });
     const payBox = h('form', { class: 'paybox', hidden: true, onsubmit: async (e) => {
       e.preventDefault();
       const fd = new FormData();
-      fd.set('student_id', c.id);
       picked.forEach((id) => fd.append('fee_id', id));
-      if (note.value.trim()) fd.set('description', mine.filter((f) => picked.has(f.id)).map((f) => f.name).join('、') + ' — ' + note.value.trim());
+      if (note.value.trim()) fd.set('note', note.value.trim());
       fd.set('file', file.files[0]);
       if (await uploadReceipt(fd, btn)) rerender();
-    } }, h('div', { class: 'row' }, h('span', { class: 'grow' }, t('selectedTotal')), total), field(t('file'), file), field(t('payNote'), note), btn);
+    } }, field(t('file'), file), field(t('payNote'), note), btn);
     const update = () => {
       payBox.hidden = !picked.size;
-      total.textContent = money(mine.filter((f) => picked.has(f.id)).reduce((s, f) => s + f.amount_cents, 0));
+      const sum = mine.filter((f) => picked.has(f.id)).reduce((s, f) => s + f.amount_cents, 0);
+      btn.textContent = t('payUpload', { a: money(sum), n: picked.size });
     };
     parts.push(h('section', { class: 'card' },
-      h('h3', {}, c.name, h('span', { class: 'muted small' }, ' · ', c.campus_name)),
-      open.length ? h('ul', { class: 'list' }, open.map((f) => h('li', {},
+      h('h3', {}, schools.length > 1 || family ? sc.name : [sc.kids[0].name, h('span', { class: 'muted small' }, ' · ', sc.name)]),
+      open.length > 0 && h('ul', { class: 'list' }, open.map((f) => h('li', {},
         h('label', { class: 'row fee-row' },
           f.status === 'unpaid'
             ? h('input', { type: 'checkbox', onchange: (e) => { e.target.checked ? picked.add(f.id) : picked.delete(f.id); update(); } })
             : h('span', { class: 'fee-spacer' }),
-          h('span', { class: 'grow' }, f.name, h('div', { class: 'muted small' }, t('cat_' + f.category), f.due_date ? ' · ' + t('dueOn', { d: f.due_date }) : '')),
-          h('b', {}, money(f.amount_cents)), feeBadge(f))))) : h('div', { class: 'muted', style: 'padding:8px 0' }, '✓ ', t('allPaid')),
-      open.some((f) => f.status === 'unpaid') && h('p', { class: 'small muted', style: 'margin:8px 0 0' }, t('tickToPay')),
+          kidTag(f.student_id),
+          h('span', { class: 'grow' }, f.name, h('div', { class: 'muted small' }, family ? f.student_name + ' · ' : '', t('cat_' + f.category), f.due_date ? ' · ' + t('dueOn', { d: f.due_date }) : '')),
+          h('b', {}, money(f.amount_cents)), feeBadge(f))))),
+      clear.length > 0 && h('div', { class: 'muted', style: 'padding:8px 0' }, '✓ ', family ? t('noOpenFor', { n: clear.map((c) => c.name).join('、') }) : t('allPaid')),
+      open.some((f) => f.status === 'unpaid') && h('p', { class: 'small muted', style: 'margin:8px 0 0' }, t(family && sc.kids.length > 1 ? 'tickToPayFamily' : 'tickToPay')),
       payBox,
       done.length > 0 && h('details', { style: 'margin-top:10px' }, h('summary', { class: 'small muted' }, t('paidHistory', { n: done.length })),
         h('ul', { class: 'list' }, done.map((f) => h('li', { class: 'row' },
-          h('span', { class: 'grow' }, f.name, h('div', { class: 'muted small' }, f.paid_at ? t('paidOn', { d: f.paid_at.slice(0, 10) }) : f.note)),
+          kidTag(f.student_id),
+          h('span', { class: 'grow' }, f.name, h('div', { class: 'muted small' }, family ? f.student_name + ' · ' : '', f.paid_at ? t('paidOn', { d: f.paid_at.slice(0, 10) }) : f.note)),
           h('span', {}, money(f.amount_cents)), f.receipt_id ? receiptButton(f.receipt_id, t('receiptShort')) : feeBadge(f)))))));
+    update();
   }
 
   // Payments not on the list (e.g. agreed with the school directly).
@@ -85,8 +110,10 @@ async function parentFees(main) {
 
   const official = children.length ? await api('GET', '/api/official-receipts') : [];
   if (official.length) {
-    parts.push(h('section', { class: 'card' }, h('h3', {}, '📄 ', t('myReceipts')),
-      h('ul', { class: 'list' }, official.map((o) => h('li', { class: 'row' },
+    const valid = official.filter((o) => !o.voided_at);
+    parts.push(h('section', { class: 'card' }, h('div', { class: 'row' }, h('h3', { class: 'grow', style: 'margin:0' }, '📄 ', t('myReceipts')),
+      valid.length > 1 && h('button', { class: 'btn sm', onclick: (e) => downloadAllReceipts(valid, e.currentTarget) }, '⬇ ', t('downloadAll'))),
+      h('ul', { class: 'list' }, official.map((o) => h('li', { class: 'row' }, family && kidTag(o.student_id),
         h('span', { class: 'grow' }, h('b', {}, o.number), o.voided_at ? h('span', { class: 'badge bad', style: 'margin-left:6px' }, t('void')) : null,
           h('div', { class: 'muted small' }, o.student_name, ' · ', o.issued_at.slice(0, 10), ' · ', money(o.total_cents))),
         receiptButton(o.id, t('open')))))));
@@ -103,6 +130,7 @@ function receiptCard(r, rerender) {
       h('div', { class: 'grow' }, h('h3', { style: 'margin:0' }, r.student_name), h('div', { class: 'muted small' }, admin && allCampuses() ? r.campus_name + ' · ' : '', r.class_name)),
       statusBadge(r.status)),
     h('div', { class: 'row', style: 'margin-top:8px' }, h('div', { class: 'grow' }, r.description), h('b', {}, money(r.amount_cents))),
+    r.batch_with && r.batch_with.length > 0 && h('div', { class: 'batch-note small' }, '👨‍👩‍👧 ', t(admin ? 'batchInfo' : 'batchInfoParent', { n: r.batch_with.join('、'), a: money(r.batch_total) })),
     r.fees.length > 0 && h('div', {}, r.fees.map((f) => h('span', { class: 'chip', style: 'padding-right:10px' }, f.name, ' ', money(f.amount_cents)))),
     h('div', { class: 'muted small' }, t('uploadedAt'), ': ', dateTime(r.created_at),
       admin ? [' · ', t('parent'), ': ', r.parent_name, r.parent_phone ? ` (${r.parent_phone})` : ''] : null),
@@ -386,12 +414,30 @@ function loadJsPDF() {
   return jsPDFLoading;
 }
 
-async function receiptPDF(canvas) {
+// One page per receipt; a single canvas or a list of them.
+async function receiptPDF(canvases) {
   await loadJsPDF();
-  const wMM = 210, hMM = wMM * canvas.height / canvas.width;
-  const doc = new window.jspdf.jsPDF({ unit: 'mm', format: [wMM, hMM], compress: true });
-  doc.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, wMM, hMM);
+  const list = Array.isArray(canvases) ? canvases : [canvases];
+  let doc;
+  for (const canvas of list) {
+    const wMM = 210, hMM = wMM * canvas.height / canvas.width;
+    if (!doc) doc = new window.jspdf.jsPDF({ unit: 'mm', format: [wMM, hMM], compress: true });
+    else doc.addPage([wMM, hMM]);
+    doc.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, wMM, hMM);
+  }
   return doc.output('blob');
+}
+
+// Every official receipt of the family in one PDF (e.g. for the tax return or the employer).
+async function downloadAllReceipts(list, btn) {
+  btn.disabled = true;
+  await run(async () => {
+    const logo = await new Promise((res) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = 'brand/logo.png'; });
+    const canvases = [];
+    for (const o of list) canvases.push(drawReceipt(await api('GET', `/api/official-receipts/${o.id}`), logo));
+    saveBlob(await receiptPDF(canvases), `receipts-${todayStr()}.pdf`);
+  });
+  btn.disabled = false;
 }
 
 function saveBlob(blob, name) {
