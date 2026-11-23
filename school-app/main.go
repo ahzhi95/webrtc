@@ -174,6 +174,7 @@ func (a *App) routes() http.Handler {
 	mux.Handle("POST /api/fee-items", a.auth(a.handleCreateFeeItem, "admin"))
 	mux.Handle("PUT /api/fee-items/{id}", a.auth(a.handleUpdateFeeItem, "admin"))
 	mux.Handle("DELETE /api/fee-items/{id}", a.auth(a.handleDeleteFeeItem, "admin"))
+	mux.Handle("POST /api/fee-items/{id}/remind", a.auth(a.handleRemindFeeItem, "admin"))
 	mux.Handle("GET /api/fee-items/{id}/students", a.auth(a.handleFeeItemStudents, "admin"))
 	mux.Handle("PUT /api/student-fees/{id}", a.auth(a.handleUpdateStudentFee, "admin"))
 	mux.Handle("GET /api/fees", a.auth(a.handleListFees, "admin", "parent"))

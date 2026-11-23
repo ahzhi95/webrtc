@@ -164,6 +164,15 @@ async function manageFees(body, rerender) {
       h('div', { class: 'row small' },
         h('span', { class: 'grow' }, t('feeProgress', { paid: f.paid, total: f.total }), f.pending ? ' · ' + t('feePendingN', { n: f.pending }) : ''),
         h('span', { class: 'muted' }, t('collected'), ' ', money(f.paid_cents), ' · ', t('outstanding'), ' ', money(f.due_cents))),
+      f.unpaid > 0 && h('div', { class: 'row small', style: 'margin-top:8px' },
+        h('span', { class: 'grow ' + (f.needs_remind ? 'warn-text' : 'muted') },
+          f.needs_remind ? '⏰ ' + t('remindDue', { n: f.unpaid }) : t('unpaidN', { n: f.unpaid }),
+          f.reminded_at ? ' · ' + t('lastReminded', { d: dateTime(f.reminded_at), n: f.remind_count }) : ''),
+        h('button', { class: 'btn sm ' + (f.needs_remind ? 'primary' : ''), onclick: async () => {
+          if (!confirm(t('remindConfirm', { n: f.unpaid, name: f.name }))) return;
+          let r;
+          if (await run(async () => { r = await api('POST', `/api/fee-items/${f.id}/remind`); })) { toast(t('remindSent', { p: r.parents, s: r.students })); rerender(); }
+        } }, '🔔 ', t('remind'))),
       h('div', { class: 'row', style: 'margin-top:8px' },
         h('button', { class: 'btn sm primary', onclick: () => feeItemStudents(f, rerender) }, t('viewStudents')),
         h('button', { class: 'btn sm', onclick: () => feeItemDialog(f, { campuses, classes, students }, rerender) }, t('copy')),
@@ -185,7 +194,7 @@ function feeItemDialog(copyFrom, { campuses, classes, students }, done) {
   const name = h('input', { type: 'text', required: true, maxlength: 200, value: copyFrom ? copyFrom.name : '', placeholder: t('feeNamePh') });
   const cat = h('select', {}, FEE_CATEGORIES.map((c) => h('option', { value: c, selected: copyFrom ? copyFrom.category === c : c === 'monthly' }, t('cat_' + c))));
   const amount = h('input', { type: 'number', required: true, min: '0.01', step: '0.01', inputmode: 'decimal', value: copyFrom ? (copyFrom.amount_cents / 100).toFixed(2) : '' });
-  const due = h('input', { type: 'date' });
+  const due = h('input', { type: 'date' }); // optional: without it, a fee counts as late a month after it is billed
   const kind = h('select', {}, ['campus', 'class', 'students'].map((k) => h('option', { value: k, selected: copyFrom ? (copyFrom.class_id ? k === 'class' : k === 'campus') : k === 'campus' }, t('target_' + k))));
   // No default: billing the wrong campus by accident is easy to miss. Show how many students each covers.
   const campus = h('select', { required: true }, h('option', { value: '' }, t('pleaseChoose')),
@@ -213,7 +222,7 @@ function feeItemDialog(copyFrom, { campuses, classes, students }, done) {
   drawTarget();
   openDialog(copyFrom ? t('copyFee') : t('newFee'), [
     field(t('feeName'), name), field(t('feeCategory'), cat),
-    h('div', { class: 'row' }, h('div', { class: 'grow' }, field(t('amount') + ` (${state.currency})`, amount)), h('div', { class: 'grow' }, field(t('dueDate'), due))),
+    h('div', { class: 'row' }, h('div', { class: 'grow' }, field(t('amount') + ` (${state.currency})`, amount)), h('div', { class: 'grow' }, field(t('dueDateOptional'), due))),
     field(t('billTo'), kind), targetBox,
     h('p', { class: 'small muted' }, t('feeNotifyHint')),
   ], () => run(async () => {

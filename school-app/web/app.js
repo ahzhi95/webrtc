@@ -515,7 +515,8 @@ VIEWS.overview = async (main) => {
           h('li', { class: 'row' }, h('span', { class: 'grow' }, t('pendingReceipts')),
             h('b', { class: c.pending_receipts ? 'warn-text' : '' }, c.pending_receipts),
             c.pending_receipts > 0 && h('button', { class: 'btn sm primary', onclick: () => { receiptFilter.status = 'pending'; receiptFilter.campusId = allCampuses() ? String(c.id) : ''; go('receipts'); } }, t('review'))),
-          h('li', { class: 'row' }, h('span', { class: 'grow' }, t('overdueFees', { n: c.overdue_count })), h('b', { class: c.overdue_cents ? 'bad-text' : '' }, money(c.overdue_cents))),
+          h('li', { class: 'row' }, h('span', { class: 'grow' }, t('overdueFees', { n: c.overdue_count })), h('b', { class: c.overdue_cents ? 'bad-text' : '' }, money(c.overdue_cents)),
+            c.overdue_count > 0 && h('button', { class: 'btn sm', onclick: () => { manageTab = 'fees'; feeFilter.campusId = allCampuses() ? String(c.id) : ''; go('manage'); } }, '🔔 ', t('remind'))),
           h('li', { class: 'row' }, h('span', { class: 'grow' }, t('unpaidFees', { n: c.unpaid_count })), h('b', {}, money(c.unpaid_cents))),
           h('li', { class: 'row' }, h('span', { class: 'grow' }, t('collectedMonth')), h('b', { class: 'ok-text' }, money(c.collected_month_cents)))))));
   }

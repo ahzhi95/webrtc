@@ -317,6 +317,8 @@ func openDB(path string) (*sql.DB, error) {
 		`ALTER TABLE students ADD COLUMN emergency_phone TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE students ADD COLUMN notes TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE campuses ADD COLUMN reg_no TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE fee_items ADD COLUMN reminded_at TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE fee_items ADD COLUMN remind_count INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE announcements ADD COLUMN publish_at TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE announcements ADD COLUMN published INTEGER NOT NULL DEFAULT 1`,
 		`ALTER TABLE announcements ADD COLUMN retracted_at TEXT NOT NULL DEFAULT ''`,

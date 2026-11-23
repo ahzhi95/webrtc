@@ -123,7 +123,7 @@ window.I18N = {
     'err:receipt prefix: 1-8 letters or numbers': '收据前缀只能是 1-8 个英文字母或数字',
     // overview
     tab_overview: '概况', overviewTitle: '学校概况', todayArrival: '今天到园', feesStatus: '缴费状况',
-    pendingReceipts: '待审核的付款凭证', review: '去审核', overdueFees: '逾期未缴（{n} 项）', unpaidFees: '全部待缴（{n} 项）',
+    pendingReceipts: '待审核的付款凭证', review: '去审核', overdueFees: '超过一个月未缴 / 逾期（{n} 项）', unpaidFees: '全部待缴（{n} 项）',
     collectedMonth: '本月已收',
     // Excel import
     importExcel: 'Excel 批量导入', imp_step1: '下载范本，每个学生填一行。', imp_template: '下载 Excel 范本',
@@ -171,6 +171,12 @@ window.I18N = {
     'err:at most 3 photos': '最多 3 张图片',
     'err:please describe the problem': '请填写内容',
     'err:no school linked to this account': '这个账号还没有绑定学校',
+    // fee reminders
+    remind: '提醒', remindDue: '已超过一个月，{n} 人未缴', unpaidN: '{n} 人未缴', lastReminded: '上次提醒 {d}（共 {n} 次）',
+    remindConfirm: '提醒“{name}”还没缴费的 {n} 位学生的家长？他们会收到推送和消息。', remindSent: '已提醒 {p} 位家长（{s} 位学生）',
+    dueDateOptional: '截止日期（可不填）',
+    'err:already reminded in the last 12 hours': '12 小时内已经提醒过了，请稍后再提醒',
+    'err:everyone has paid': '大家都已经缴费了',
     // errors from server
     'err:wrong username or password': '用户名或密码错误',
     'err:too many attempts, try again in 15 minutes': '尝试次数太多，请 15 分钟后再试',
@@ -282,7 +288,7 @@ window.I18N = {
     address: 'Address', campusReceiptHint: 'Printed on official receipts. Receipt numbers look like PREFIX-YEAR-NUMBER, e.g. TTM-2026-0001.',
     campusHintOwn: 'You can update your campus address, phone and other details (printed on receipts).',
     tab_overview: 'Overview', overviewTitle: 'School overview', todayArrival: 'Arrived today', feesStatus: 'Fees',
-    pendingReceipts: 'Receipts to review', review: 'Review', overdueFees: 'Overdue ({n})', unpaidFees: 'All unpaid ({n})',
+    pendingReceipts: 'Receipts to review', review: 'Review', overdueFees: 'Unpaid over a month / overdue ({n})', unpaidFees: 'All unpaid ({n})',
     collectedMonth: 'Collected this month',
     'err:please choose a file': 'Please choose a file',
     importExcel: 'Import from Excel', imp_step1: 'Download the template and fill in one student per row.', imp_template: 'Download Excel template',
@@ -319,6 +325,11 @@ window.I18N = {
     fbc_suggestion: 'Suggestion', fbc_problem: 'Problem', fbc_complaint: 'Complaint', fbc_other: 'Other',
     m_feedback: 'Feedback', replyTitle: 'Reply to feedback', fbReply: 'Reply (the sender sees it)', replyHint: 'The sender is notified when you write a reply.',
     'err:at most 3 photos': 'At most 3 photos',
+    remind: 'Remind', remindDue: 'Over a month: {n} unpaid', unpaidN: '{n} unpaid', lastReminded: 'last reminded {d} ({n}×)',
+    remindConfirm: 'Remind the parents of the {n} student(s) who have not paid "{name}"? They get a push notification and a message.', remindSent: 'Reminded {p} parent(s) ({s} student(s))',
+    dueDateOptional: 'Due date (optional)',
+    'err:already reminded in the last 12 hours': 'Already reminded in the last 12 hours',
+    'err:everyone has paid': 'Everyone has paid',
     'err:network': 'Network error, please try again',
   },
 };

@@ -8,6 +8,9 @@ import (
 // The admin's at-a-glance page (学校概况): today's arrivals per class and the state of fees,
 // for each campus the admin manages.
 
+// lateFee: past the due date, or a month old when there is no due date. Takes (today, monthAgo).
+const lateFee = `((f.due_date != '' AND f.due_date < ?) OR (f.due_date = '' AND substr(f.created_at, 1, 10) <= ?))`
+
 type ClassToday struct {
 	ID       int64  `json:"id"`
 	Name     string `json:"name"`
@@ -38,6 +41,7 @@ func (a *App) handleOverview(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
 	today := a.now().Format("2006-01-02")
 	month := today[:7]
+	monthAgo := a.now().AddDate(0, -1, 0).Format("2006-01-02")
 	only := scope(u)
 	if only == 0 {
 		only, _ = strconv.ParseInt(r.URL.Query().Get("campus_id"), 10, 64)
@@ -89,10 +93,10 @@ func (a *App) handleOverview(w http.ResponseWriter, r *http.Request) {
 		const inCampus = `sf.student_id IN (SELECT s.id FROM students s JOIN classes cl ON cl.id = s.class_id WHERE cl.campus_id = ?)`
 		err = a.db.QueryRow(`SELECT
 			COALESCE(SUM(sf.status = 'unpaid'),0), COALESCE(SUM(CASE WHEN sf.status = 'unpaid' THEN sf.amount_cents END),0),
-			COALESCE(SUM(sf.status = 'unpaid' AND f.due_date != '' AND f.due_date < ?),0),
-			COALESCE(SUM(CASE WHEN sf.status = 'unpaid' AND f.due_date != '' AND f.due_date < ? THEN sf.amount_cents END),0),
+			COALESCE(SUM(sf.status = 'unpaid' AND `+lateFee+`),0),
+			COALESCE(SUM(CASE WHEN sf.status = 'unpaid' AND `+lateFee+` THEN sf.amount_cents END),0),
 			COALESCE(SUM(CASE WHEN sf.status = 'paid' AND sf.paid_at LIKE ? THEN sf.amount_cents END),0)
-			FROM student_fees sf JOIN fee_items f ON f.id = sf.fee_item_id WHERE `+inCampus, today, today, month+"%", c.ID).
+			FROM student_fees sf JOIN fee_items f ON f.id = sf.fee_item_id WHERE `+inCampus, today, monthAgo, today, monthAgo, month+"%", c.ID).
 			Scan(&c.UnpaidCount, &c.UnpaidCents, &c.OverdueCount, &c.OverdueCents, &c.CollectedMonthCents)
 		if err != nil {
 			serverError(w, err)

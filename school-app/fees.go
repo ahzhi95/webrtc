@@ -27,6 +27,9 @@ type FeeItem struct {
 	ClassID     int64  `json:"class_id"`
 	ClassName   string `json:"class_name"`
 	CreatedAt   string `json:"created_at"`
+	RemindedAt  string `json:"reminded_at"`
+	RemindCount int    `json:"remind_count"`
+	NeedsRemind bool   `json:"needs_remind"` // unpaid and past the due date, or a month old when there is no due date
 	Total       int    `json:"total"`
 	Paid        int    `json:"paid"`
 	Pending     int    `json:"pending"`
@@ -51,7 +54,7 @@ func (a *App) canAccessFeeItem(u *User, id int64) bool {
 func (a *App) handleListFeeItems(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
 	q := `SELECT f.id, f.name, f.category, f.amount_cents, f.due_date, COALESCE(f.campus_id, c.campus_id, 0), COALESCE(cp.name,''),
-		COALESCE(f.class_id,0), COALESCE(c.name,''), f.created_at,
+		COALESCE(f.class_id,0), COALESCE(c.name,''), f.created_at, f.reminded_at, f.remind_count,
 		COUNT(sf.id), COALESCE(SUM(sf.status='paid'),0), COALESCE(SUM(sf.status='pending'),0), COALESCE(SUM(sf.status='unpaid'),0),
 		COALESCE(SUM(sf.status='waived'),0),
 		COALESCE(SUM(CASE WHEN sf.status='paid' THEN sf.amount_cents END),0),
@@ -60,7 +63,8 @@ func (a *App) handleListFeeItems(w http.ResponseWriter, r *http.Request) {
 		LEFT JOIN student_fees sf ON sf.fee_item_id = f.id
 		WHERE (? = 0 OR COALESCE(f.campus_id, c.campus_id) = ?)`
 	args := []any{scope(u), scope(u)}
-	if cp := r.URL.Query().Get("campus_id"); cp != "" {
+	// Compare as a number: the COALESCE expression has no column type for SQLite to convert text to.
+	if cp, _ := strconv.ParseInt(r.URL.Query().Get("campus_id"), 10, 64); cp > 0 {
 		q += ` AND COALESCE(f.campus_id, c.campus_id) = ?`
 		args = append(args, cp)
 	}
@@ -74,13 +78,79 @@ func (a *App) handleListFeeItems(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var f FeeItem
 		if err := rows.Scan(&f.ID, &f.Name, &f.Category, &f.AmountCents, &f.DueDate, &f.CampusID, &f.CampusName, &f.ClassID, &f.ClassName,
-			&f.CreatedAt, &f.Total, &f.Paid, &f.Pending, &f.Unpaid, &f.Waived, &f.PaidCents, &f.DueCents); err != nil {
+			&f.CreatedAt, &f.RemindedAt, &f.RemindCount, &f.Total, &f.Paid, &f.Pending, &f.Unpaid, &f.Waived, &f.PaidCents, &f.DueCents); err != nil {
 			serverError(w, err)
 			return
 		}
+		f.NeedsRemind = f.Unpaid > 0 && a.feeIsLate(f.DueDate, f.CreatedAt)
 		list = append(list, f)
 	}
 	writeJSON(w, list)
+}
+
+// feeIsLate: past the due date, or — when the school set none — a month since the fee was billed.
+func (a *App) feeIsLate(dueDate, createdAt string) bool {
+	today := a.now().Format("2006-01-02")
+	if dueDate != "" {
+		return dueDate < today
+	}
+	return len(createdAt) >= 10 && createdAt[:10] <= a.now().AddDate(0, -1, 0).Format("2006-01-02")
+}
+
+const remindCooldown = 12 * time.Hour
+
+// handleRemindFeeItem reminds the parents of every student who has not paid this fee yet (缴费提醒).
+func (a *App) handleRemindFeeItem(w http.ResponseWriter, r *http.Request) {
+	u := currentUser(r)
+	id, ok := pathID(r, "id")
+	if !ok || !a.canAccessFeeItem(u, id) {
+		httpError(w, http.StatusForbidden, "permission denied")
+		return
+	}
+	var name, last string
+	var amount int64
+	if err := a.db.QueryRow(`SELECT name, amount_cents, reminded_at FROM fee_items WHERE id = ?`, id).Scan(&name, &amount, &last); err != nil {
+		serverError(w, err)
+		return
+	}
+	if t, err := time.Parse(time.RFC3339, last); err == nil && time.Since(t) < remindCooldown {
+		httpError(w, http.StatusConflict, "already reminded in the last 12 hours")
+		return
+	}
+	rows, err := a.db.Query(`SELECT student_id FROM student_fees WHERE fee_item_id = ? AND status = 'unpaid'`, id)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	var students []int64
+	for rows.Next() {
+		var sid int64
+		if rows.Scan(&sid) == nil {
+			students = append(students, sid)
+		}
+	}
+	rows.Close()
+	if len(students) == 0 {
+		httpError(w, http.StatusBadRequest, "everyone has paid")
+		return
+	}
+	var parents int
+	ph := strings.TrimSuffix(strings.Repeat("?,", len(students)), ",")
+	args := make([]any, len(students))
+	for i, s := range students {
+		args[i] = s
+	}
+	_ = a.db.QueryRow(`SELECT COUNT(DISTINCT parent_id) FROM parent_students WHERE student_id IN (`+ph+`)`, args...).Scan(&parents)
+	if _, err := a.db.Exec(`UPDATE fee_items SET reminded_at = ?, remind_count = remind_count + 1 WHERE id = ?`, a.nowStr(), id); err != nil {
+		serverError(w, err)
+		return
+	}
+	amountStr := a.currency + " " + centsStr(amount)
+	go a.notifier.notifyParents(students, "缴费提醒 / Payment reminder", func(children string) string {
+		return fmt.Sprintf("%s（%s）尚未缴付：%s。请在 App 缴费并上传付款凭证。\n%s for %s is still unpaid: %s. Please pay and upload the receipt in the app.",
+			name, amountStr, children, name, children, amountStr)
+	}, "/#receipts", fmt.Sprintf("remind-%d", id))
+	writeJSON(w, map[string]int{"students": len(students), "parents": parents})
 }
 
 func (a *App) handleCreateFeeItem(w http.ResponseWriter, r *http.Request) {
