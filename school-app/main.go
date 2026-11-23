@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -17,16 +18,17 @@ import (
 var webFiles embed.FS
 
 type App struct {
-	db        *sql.DB
-	uploadDir string
-	loc       *time.Location
-	lateAfter string // "HH:MM" local time; check-ins after this are marked late
-	secure    bool   // set the Secure flag on cookies (when served over HTTPS)
-	limiter   *loginLimiter
-	currency  string // shown next to amounts, e.g. "RM"
-	notifier  *Notifier
-	mailer    *Mailer // nil when no mail server is configured
-	baseURL   string  // public address used in emailed links
+	db         *sql.DB
+	uploadDir  string
+	loc        *time.Location
+	lateAfter  string // "HH:MM" local time; check-ins after this are marked late
+	secure     bool   // set the Secure flag on cookies (when served over HTTPS)
+	limiter    *loginLimiter
+	challenges *loginChallenges // sign-ins waiting for the two-step code
+	currency   string           // shown next to amounts, e.g. "RM"
+	notifier   *Notifier
+	mailer     *Mailer // nil when no mail server is configured
+	baseURL    string  // public address used in emailed links
 }
 
 func (a *App) now() time.Time { return time.Now().In(a.loc) }
@@ -67,7 +69,7 @@ func main() {
 	app := &App{
 		db: db, uploadDir: uploadDir, loc: loc, lateAfter: *late,
 		secure:  *certFile != "" || *behindHTTPS,
-		limiter: newLoginLimiter(), currency: *currency, mailer: mailerFromEnv(), baseURL: *publicURL,
+		limiter: newLoginLimiter(), challenges: &loginChallenges{m: map[string]*pendingLogin{}}, currency: *currency, mailer: mailerFromEnv(), baseURL: *publicURL,
 	}
 	if err := ensureAdmin(db, os.Getenv("ADMIN_PASSWORD")); err != nil {
 		log.Fatal(err)
@@ -92,7 +94,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              *addr,
-		Handler:           securityHeaders(app.routes()),
+		Handler:           securityHeaders(app.routes(), app.secure),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	if *certFile != "" {
@@ -112,6 +114,12 @@ func (a *App) routes() http.Handler {
 	// Accounts
 	mux.HandleFunc("POST /api/login", a.handleLogin)
 	mux.HandleFunc("POST /api/logout", a.handleLogout)
+	mux.HandleFunc("POST /api/login/2fa", a.handleLogin2FA)
+	mux.Handle("POST /api/me/2fa/setup", a.auth(a.handle2FASetup))
+	mux.Handle("POST /api/me/2fa/enable", a.auth(a.handle2FAEnable))
+	mux.Handle("POST /api/me/2fa/disable", a.auth(a.handle2FADisable))
+	mux.Handle("POST /api/users/{id}/2fa/reset", a.auth(a.handleReset2FA, "admin"))
+	mux.Handle("GET /api/security/events", a.auth(a.handleSecurityEvents, "admin"))
 	mux.Handle("GET /api/me", a.auth(a.handleMe))
 	mux.Handle("POST /api/me/password", a.auth(a.handleChangePassword))
 	mux.Handle("PUT /api/me", a.auth(a.handleUpdateMe))
@@ -214,13 +222,29 @@ func (a *App) routes() http.Handler {
 	return mux
 }
 
-func securityHeaders(next http.Handler) http.Handler {
+// securityHeaders applies current browser protections to every response.
+func securityHeaders(next http.Handler, https bool) http.Handler {
+	csp := "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; media-src 'self' blob:; " +
+		"font-src 'self'; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; " +
+		"frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+	if https {
+		csp += "; upgrade-insecure-requests"
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
-		h.Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; media-src 'self' blob:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+		h.Set("Content-Security-Policy", csp)
 		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("X-Frame-Options", "DENY")
 		h.Set("Referrer-Policy", "same-origin")
-		h.Set("Permissions-Policy", "camera=(self), microphone=(), geolocation=()")
+		h.Set("Cross-Origin-Opener-Policy", "same-origin")
+		h.Set("Cross-Origin-Resource-Policy", "same-origin")
+		h.Set("Permissions-Policy", "camera=(self), microphone=(), geolocation=(), payment=(), usb=(), bluetooth=(), browsing-topics=()")
+		if https { // browsers remember to use HTTPS only, for a year
+			h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		}
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			h.Set("Cache-Control", "no-store")
+		}
 		next.ServeHTTP(w, r)
 	})
 }

@@ -9,7 +9,7 @@ const manageFilter = { classId: '', role: '' };
 VIEWS.manage = async (main) => {
   const rerender = () => VIEWS.manage(main);
   const top = !state.me.user.campus_id;
-  const tabs = ['students', 'classes', 'users', 'fees', 'feedback', 'cards', 'campuses', 'notify'];
+  const tabs = ['students', 'classes', 'users', 'fees', 'feedback', 'cards', 'campuses', 'notify', 'security'];
   if (!tabs.includes(manageTab)) manageTab = 'students';
   const body = [];
   await MANAGE[manageTab](body, rerender);
@@ -175,7 +175,7 @@ function userDialog(u, campuses, done) {
   const username = h('input', { type: 'text', required: true, autocapitalize: 'none', pattern: '[a-zA-Z0-9._\\-]{3,32}' });
   const phone = h('input', { type: 'tel', value: u ? u.phone : '' });
   const email = h('input', { type: 'email', value: u ? u.email : '' });
-  const pw = h('input', { type: 'text', required: true, minlength: 6, autocomplete: 'new-password' });
+  const pw = h('input', { type: 'text', required: true, minlength: 8, autocomplete: 'new-password' });
   const campus = h('select', {}, h('option', { value: '' }, t('noCampus')), campusOptions(campuses, u ? u.campus_id : ''));
   const campusHint = h('p', { class: 'small muted', style: 'margin-top:-4px' });
   const syncHint = () => { campusHint.textContent = role.value === 'admin' ? t('adminCampusHint') : role.value === 'teacher' ? t('teacherCampusHint') : ''; };
@@ -209,6 +209,7 @@ MANAGE.users = async (body, rerender) => {
         h('b', {}, u.name), ' ', h('span', { class: 'badge' }, t('role_' + u.role)),
         u.role !== 'parent' && h('span', { class: 'badge info', style: 'margin-left:4px' }, u.campus_name || t('allSchools')),
         u.disabled && h('span', { class: 'badge bad', style: 'margin-left:4px' }, t('disabled')),
+        u.two_factor && h('span', { class: 'badge ok', style: 'margin-left:4px', title: t('twoStepTitle') }, '🔐'),
         h('div', { class: 'muted small' }, u.username, u.phone ? ' · ' + u.phone : '', u.email ? ' · ' + u.email : ''),
         u.children && h('div', { class: 'muted small' }, t('children'), ': ', u.children.map((c) => c.name).join('、')))),
     (allCampuses() || u.role !== 'admin') && h('div', { class: 'row', style: 'margin-top:6px;justify-content:flex-end' },
@@ -217,6 +218,9 @@ MANAGE.users = async (body, rerender) => {
         const p = prompt(t('newPwPrompt'));
         if (p) await run(() => api('POST', `/api/users/${u.id}/password`, { password: p }), t('saved'));
       } }, t('resetPw')),
+      u.two_factor && u.id !== me.id && h('button', { class: 'btn sm', onclick: async () => {
+        if (confirm(t('tfResetConfirm', { n: u.name })) && await run(() => api('POST', `/api/users/${u.id}/2fa/reset`), t('saved'))) rerender();
+      } }, t('tfReset')),
       u.id !== me.id && h('button', { class: 'btn sm', onclick: async () => {
         if (!u.disabled && !confirm(t('disableConfirm', { n: u.name }))) return;
         if (await run(() => api('POST', `/api/users/${u.id}/disabled`, { disabled: !u.disabled }), t('saved'))) rerender();
@@ -308,6 +312,20 @@ MANAGE.campuses = async (body, rerender) => {
       c.address && h('div', { class: 'muted small' }, c.address)),
     h('button', { class: 'btn sm', onclick: () => edit(c) }, t('edit')),
     top && h('button', { class: 'btn sm bad', onclick: async () => { if (confirm(t('confirmDelete')) && await run(() => api('DELETE', `/api/campuses/${c.id}`), t('deleted'))) rerender(); } }, t('delete'))))) : emptyRow()));
+};
+
+// ---------- security log (安全记录) ----------
+const EVENT_ICONS = { login_ok: '✅', login_fail: '⛔', login_blocked: '🚫', login_2fa_fail: '⛔', password_change: '🔑', password_reset: '🔑',
+  '2fa_on': '🔐', '2fa_off': '🔓', '2fa_reset': '🔓', account_created: '➕', account_deleted: '🗑️', account_disabled: '⏸️', account_enabled: '▶️' };
+MANAGE.security = async (body) => {
+  const list = await api('GET', '/api/security/events');
+  const fails = list.filter((e) => e.event === 'login_fail' || e.event === 'login_blocked' || e.event === 'login_2fa_fail').length;
+  body.push(h('p', { class: 'small muted', style: 'margin:0' }, t('securityHint')));
+  if (fails) body.push(h('div', { class: 'card nag' }, '⚠️ ', t('failedLogins', { n: fails })));
+  body.push(h('section', { class: 'card' }, list.length ? h('ul', { class: 'list' }, list.map((e) => h('li', {},
+    h('div', { class: 'row' }, h('span', {}, EVENT_ICONS[e.event] || '•'), h('b', { class: 'grow' }, t('ev_' + e.event)), h('span', { class: 'muted small' }, dateTime(e.created_at))),
+    h('div', { class: 'small' }, e.name || e.username || '—', e.detail ? ' · ' + e.detail : ''),
+    h('div', { class: 'muted small', style: 'word-break:break-all' }, e.ip, ' · ', e.user_agent.slice(0, 80))))) : emptyRow()));
 };
 
 // ---------- push log ----------

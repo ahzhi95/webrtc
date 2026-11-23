@@ -13,11 +13,6 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-const (
-	sessionCookie = "sid"
-	sessionTTL    = 30 * 24 * time.Hour
-)
-
 type User struct {
 	ID         int64  `json:"id"`
 	Username   string `json:"username"`
@@ -77,15 +72,15 @@ func (a *App) auth(h http.HandlerFunc, roles ...string) http.Handler {
 }
 
 func (a *App) userFromRequest(r *http.Request) (*User, error) {
-	c, err := r.Cookie(sessionCookie)
-	if err != nil {
-		return nil, err
+	token := a.sessionToken(r)
+	if token == "" {
+		return nil, sql.ErrNoRows
 	}
 	u := &User{}
-	err = a.db.QueryRow(`SELECT u.id, u.username, u.name, u.phone, u.email, u.role, COALESCE(u.campus_id,0), COALESCE(cp.name,'')
+	err := a.db.QueryRow(`SELECT u.id, u.username, u.name, u.phone, u.email, u.role, COALESCE(u.campus_id,0), COALESCE(cp.name,'')
 		FROM sessions s JOIN users u ON u.id = s.user_id LEFT JOIN campuses cp ON cp.id = u.campus_id
 		WHERE s.token = ? AND s.expires_at > ? AND u.disabled = 0`,
-		c.Value, time.Now().Unix()).Scan(&u.ID, &u.Username, &u.Name, &u.Phone, &u.Email, &u.Role, &u.CampusID, &u.CampusName)
+		tokenHash(token), time.Now().Unix()).Scan(&u.ID, &u.Username, &u.Name, &u.Phone, &u.Email, &u.Role, &u.CampusID, &u.CampusName)
 	if err != nil {
 		return nil, err
 	}
@@ -102,51 +97,61 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	username := strings.ToLower(strings.TrimSpace(req.Username))
-	if !a.limiter.allow(username) {
+	ipKey := "login-ip:" + clientIP(r)
+	if !a.limiter.allow(username) || !a.limiter.allowN(ipKey, 30) {
+		a.audit(r, 0, username, "login_blocked", "too many attempts")
 		httpError(w, http.StatusTooManyRequests, "too many attempts, try again in 15 minutes")
 		return
 	}
 	var id int64
-	var hash string
-	var disabled bool
-	err := a.db.QueryRow(`SELECT id, password_hash, disabled FROM users WHERE username = ?`, username).Scan(&id, &hash, &disabled)
-	if err == nil {
+	var hash, role string
+	var disabled, twoFactor bool
+	err := a.db.QueryRow(`SELECT id, password_hash, role, disabled, totp_enabled FROM users WHERE username = ?`, username).
+		Scan(&id, &hash, &role, &disabled, &twoFactor)
+	if err != nil {
+		_ = bcrypt.CompareHashAndPassword(dummyHash, []byte(req.Password)) // same time as a real check
+	} else {
 		err = bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Password))
 	}
 	if err != nil {
 		a.limiter.fail(username)
+		a.limiter.fail(ipKey)
+		a.audit(r, id, username, "login_fail", "")
 		httpError(w, http.StatusUnauthorized, "wrong username or password")
 		return
 	}
 	a.limiter.reset(username)
 	if disabled {
+		a.audit(r, id, username, "login_fail", "account disabled")
 		httpError(w, http.StatusForbidden, "account disabled")
 		return
 	}
-	token := randomToken(32)
-	expires := time.Now().Add(sessionTTL)
-	if _, err := a.db.Exec(`INSERT INTO sessions (token, user_id, expires_at) VALUES (?,?,?)`, token, id, expires.Unix()); err != nil {
+	if twoFactor { // password is right; the code from the authenticator app comes next
+		challenge := a.challenges.add(&pendingLogin{userID: id, username: username, role: role, expires: time.Now().Add(5 * time.Minute)})
+		writeJSON(w, map[string]any{"need_2fa": true, "challenge": challenge})
+		return
+	}
+	if err := a.startSession(w, id, role); err != nil {
 		serverError(w, err)
 		return
 	}
-	http.SetCookie(w, &http.Cookie{
-		Name: sessionCookie, Value: token, Path: "/", Expires: expires,
-		HttpOnly: true, Secure: a.secure, SameSite: http.SameSiteLaxMode,
-	})
+	a.audit(r, id, username, "login_ok", "")
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
 func (a *App) handleLogout(w http.ResponseWriter, r *http.Request) {
-	if c, err := r.Cookie(sessionCookie); err == nil {
-		_, _ = a.db.Exec(`DELETE FROM sessions WHERE token = ?`, c.Value)
+	if token := a.sessionToken(r); token != "" {
+		_, _ = a.db.Exec(`DELETE FROM sessions WHERE token = ?`, tokenHash(token))
 	}
-	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, Secure: a.secure, SameSite: http.SameSiteLaxMode})
+	a.clearSessionCookie(w)
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
 func (a *App) handleMe(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
 	resp := map[string]any{"user": u, "late_after": a.lateAfter, "today": a.now().Format("2006-01-02"), "currency": a.currency, "time_zone": a.loc.String(), "unread": a.unreadMessages(u.ID)}
+	on, left := a.twoFactorStatus(u.ID)
+	resp["two_factor"] = map[string]any{"enabled": on, "codes_left": left}
 	if u.Role == "parent" {
 		children, err := a.queryStudents(`WHERE s.id IN (SELECT student_id FROM parent_students WHERE parent_id = ?)`, u.ID)
 		if err != nil {
@@ -166,11 +171,11 @@ func (a *App) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &req) {
 		return
 	}
-	if len(req.New) < 6 {
-		httpError(w, http.StatusBadRequest, "password must be at least 6 characters")
+	u := currentUser(r)
+	if msg := passwordProblem(req.New, u.Username, u.Phone); msg != "" {
+		httpError(w, http.StatusBadRequest, msg)
 		return
 	}
-	u := currentUser(r)
 	var hash string
 	if err := a.db.QueryRow(`SELECT password_hash FROM users WHERE id = ?`, u.ID).Scan(&hash); err != nil {
 		serverError(w, err)
@@ -185,8 +190,8 @@ func (a *App) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Sign out other devices, keep this one.
-	c, _ := r.Cookie(sessionCookie)
-	_, _ = a.db.Exec(`DELETE FROM sessions WHERE user_id = ? AND token != ?`, u.ID, c.Value)
+	_, _ = a.db.Exec(`DELETE FROM sessions WHERE user_id = ? AND token != ?`, u.ID, tokenHash(a.sessionToken(r)))
+	a.audit(r, u.ID, u.Username, "password_change", "")
 	writeJSON(w, map[string]bool{"ok": true})
 }
 

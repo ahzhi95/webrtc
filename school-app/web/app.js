@@ -293,9 +293,12 @@ function loginView() {
   const form = h('form', { class: 'card', onsubmit: async (e) => {
     e.preventDefault();
     btn.disabled = true;
-    const ok = await run(() => api('POST', '/api/login', { username: user.value, password: pw.value }));
+    let res;
+    const ok = await run(async () => { res = await api('POST', '/api/login', { username: user.value, password: pw.value }); });
     btn.disabled = false;
-    if (ok) { state.tab = null; boot(); }
+    if (!ok) return;
+    if (res.need_2fa) { form.replaceWith(twoStepForm(res.challenge)); return; }
+    state.tab = null; boot();
   } },
   h('label', { class: 'f' }, t('username'), user),
   h('label', { class: 'f' }, t('password'), pw),
@@ -312,6 +315,69 @@ function loginView() {
     form, legal);
 }
 
+
+// Second step of signing in: the 6-digit code from the authenticator app (or a backup code).
+function twoStepForm(challenge) {
+  const code = h('input', { type: 'text', inputmode: 'numeric', autocomplete: 'one-time-code', required: true, maxlength: 12, class: 'code-input', placeholder: '123456' });
+  const btn = h('button', { class: 'btn primary block', type: 'submit' }, t('verify'));
+  const form = h('form', { class: 'card', onsubmit: async (e) => {
+    e.preventDefault();
+    btn.disabled = true;
+    const ok = await run(() => api('POST', '/api/login/2fa', { challenge, code: code.value }));
+    btn.disabled = false;
+    if (ok) { state.tab = null; boot(); } else { code.value = ''; code.focus(); }
+  } },
+  h('div', { style: 'text-align:center;font-size:40px' }, '🔐'),
+  h('h3', { style: 'text-align:center' }, t('twoStepTitle')),
+  h('p', { class: 'small muted', style: 'text-align:center;margin-top:0' }, t('twoStepHint')),
+  code, h('div', { style: 'height:12px' }), btn,
+  h('div', { style: 'text-align:center;margin-top:12px' }, h('button', { type: 'button', class: 'linkbtn', onclick: () => render() }, '‹ ', t('backToLogin'))));
+  setTimeout(() => code.focus(), 50);
+  return form;
+}
+
+// "Me" page: turn two-step verification on or off.
+function twoFactorCard(rerender) {
+  const tf = state.me.two_factor || {};
+  const start = async () => {
+    let s;
+    if (!(await run(async () => { s = await api('POST', '/api/me/2fa/setup'); }))) return;
+    const code = h('input', { type: 'text', inputmode: 'numeric', autocomplete: 'one-time-code', required: true, maxlength: 6, class: 'code-input', placeholder: '123456' });
+    openDialog(t('twoStepOn'), [
+      h('ol', { class: 'small', style: 'padding-left:20px;margin-top:0' }, h('li', {}, t('tfStep1')), h('li', {}, t('tfStep2')), h('li', {}, t('tfStep3'))),
+      h('img', { src: s.qr, alt: 'QR', class: 'tf-qr' }),
+      h('details', { class: 'small' }, h('summary', {}, t('tfManual')), h('code', { class: 'tf-secret' }, s.secret.replace(/(.{4})/g, '$1 ').trim())),
+      field(t('tfCode'), code),
+    ], async () => run(async () => {
+      const r = await api('POST', '/api/me/2fa/enable', { code: code.value });
+      state.me.two_factor = { enabled: true, codes_left: r.recovery_codes.length };
+      showRecoveryCodes(r.recovery_codes);
+      rerender();
+    }), t('twoStepOn'));
+  };
+  const stop = () => {
+    const pw = h('input', { type: 'password', required: true, autocomplete: 'current-password' });
+    const code = h('input', { type: 'text', required: true, maxlength: 12, class: 'code-input', autocomplete: 'one-time-code' });
+    openDialog(t('twoStepOff'), [h('p', { class: 'small bad-text', style: 'margin-top:0' }, t('tfOffWarn')), field(t('password'), pw), field(t('tfCodeOrBackup'), code)],
+      () => run(async () => { await api('POST', '/api/me/2fa/disable', { password: pw.value, code: code.value }); state.me.two_factor = { enabled: false }; rerender(); }, t('saved')), t('twoStepOff'));
+  };
+  return h('section', { class: 'card' },
+    h('div', { class: 'row' }, h('h3', { class: 'grow', style: 'margin:0' }, '🔐 ', t('twoStepTitle')),
+      tf.enabled ? h('span', { class: 'badge ok' }, '✓ ', t('on')) : h('span', { class: 'badge' }, t('off'))),
+    h('p', { class: 'small muted' }, tf.enabled ? t('tfOnHint', { n: tf.codes_left }) : t('tfOffHint')),
+    tf.enabled ? h('button', { class: 'btn sm bad', onclick: stop }, t('twoStepOff')) : h('button', { class: 'btn primary', onclick: start }, t('twoStepOn')));
+}
+
+function showRecoveryCodes(codes) {
+  const text = codes.join('\n');
+  openDialog(t('backupCodes'), [
+    h('p', { class: 'small', style: 'margin-top:0' }, t('backupHint')),
+    h('div', { class: 'tf-codes' }, codes.map((c) => h('code', {}, c))),
+    h('div', { class: 'row' },
+      h('button', { type: 'button', class: 'btn grow', onclick: () => navigator.clipboard?.writeText(text).then(() => toast(t('copied'))) }, t('copy')),
+      h('button', { type: 'button', class: 'btn grow', onclick: () => saveBlob(new Blob(['Lovely House backup codes\n\n' + text + '\n'], { type: 'text/plain' }), 'lovelyhouse-backup-codes.txt') }, t('download'))),
+  ], null);
+}
 
 function authShell(title, ...content) {
   return h('div', { class: 'login' },
@@ -341,8 +407,8 @@ function forgotView() {
 
 // Set a new password from an emailed link.
 function resetView() {
-  const pw = h('input', { type: 'password', required: true, minlength: 6, autocomplete: 'new-password' });
-  const pw2 = h('input', { type: 'password', required: true, minlength: 6, autocomplete: 'new-password' });
+  const pw = h('input', { type: 'password', required: true, minlength: 8, autocomplete: 'new-password' });
+  const pw2 = h('input', { type: 'password', required: true, minlength: 8, autocomplete: 'new-password' });
   const btn = h('button', { class: 'btn primary block', type: 'submit' }, t('save'));
   const toLogin = () => { state.resetToken = null; state.forgot = false; state.me = null; render(); };
   const form = h('form', { class: 'card', onsubmit: async (e) => {
@@ -590,9 +656,14 @@ VIEWS.overview = async (main) => {
   const pct = (a, b) => (b ? Math.round(100 * a / b) : 0);
   const stat = (n, label, cls) => h('div', { class: 'stat' }, h('b', { class: cls || '' }, n), h('span', {}, label));
   const reqCard = await resetRequestsCard(rerender).catch(() => null);
+  const tfNag = !(state.me.two_factor || {}).enabled && h('section', { class: 'card nag' },
+    h('div', { class: 'row' }, h('span', { style: 'font-size:28px' }, '🔐'),
+      h('div', { class: 'grow' }, h('b', {}, t('tfNagTitle')), h('div', { class: 'small' }, t('tfNagText'))),
+      h('button', { class: 'btn sm primary', onclick: () => go('me') }, t('twoStepOn'))));
   const parts = [
     h('div', { class: 'row' }, h('h2', { class: 'grow', style: 'margin:0' }, t('overviewTitle')), h('span', { class: 'muted small' }, data.date)),
     reqCard,
+    tfNag,
     campuses.length > 1 && h('select', { onchange: (e) => { overviewCampus = e.target.value; rerender(); } }, campusOptions(campuses, overviewCampus, t('allSchools'))),
   ];
   for (const c of data.campuses) {
@@ -809,7 +880,7 @@ VIEWS.me = async (main) => {
   h('p', { class: 'small muted', style: 'margin-top:0' }, t('emailHint')),
   h('button', { class: 'btn primary block' }, t('save')));
   const oldPw = h('input', { type: 'password', required: true, autocomplete: 'current-password' });
-  const newPw = h('input', { type: 'password', required: true, minlength: 6, autocomplete: 'new-password' });
+  const newPw = h('input', { type: 'password', required: true, minlength: 8, autocomplete: 'new-password' });
   main.replaceChildren(h('div', { class: 'stack' },
     h('section', { class: 'card' },
       h('h2', { style: 'margin:0' }, u.name),
@@ -823,6 +894,7 @@ VIEWS.me = async (main) => {
       h('div', { class: 'seg' }, [['zh', '中文'], ['en', 'English']].map(([k, label]) =>
         h('button', { class: lang === k ? 'on' : null, onclick: () => { lang = k; try { localStorage.setItem('lang', k); } catch (e) { /* ignore */ } render(); } }, label)))),
     u.role !== 'admin' && await myFeedbackCard(rerender),
+    twoFactorCard(rerender),
     infoCard(),
     detailsForm,
     h('form', { class: 'card', onsubmit: async (e) => {

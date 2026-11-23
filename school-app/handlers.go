@@ -309,12 +309,13 @@ var usernameRe = regexp.MustCompile(`^[a-z0-9._-]{3,32}$`)
 
 type UserRow struct {
 	User
-	Children []PhotoStudent `json:"children,omitempty"`
+	TwoFactor bool           `json:"two_factor"`
+	Children  []PhotoStudent `json:"children,omitempty"`
 }
 
 func (a *App) handleListUsers(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
-	q := `SELECT u.id, u.username, u.name, u.phone, u.email, u.role, COALESCE(u.campus_id,0), COALESCE(cp.name,''), u.disabled
+	q := `SELECT u.id, u.username, u.name, u.phone, u.email, u.role, COALESCE(u.campus_id,0), COALESCE(cp.name,''), u.disabled, u.totp_enabled
 		FROM users u LEFT JOIN campuses cp ON cp.id = u.campus_id WHERE 1=1`
 	var args []any
 	if role := r.URL.Query().Get("role"); role != "" {
@@ -335,7 +336,7 @@ func (a *App) handleListUsers(w http.ResponseWriter, r *http.Request) {
 	index := map[int64]int{}
 	for rows.Next() {
 		var x UserRow
-		if err := rows.Scan(&x.ID, &x.Username, &x.Name, &x.Phone, &x.Email, &x.Role, &x.CampusID, &x.CampusName, &x.Disabled); err != nil {
+		if err := rows.Scan(&x.ID, &x.Username, &x.Name, &x.Phone, &x.Email, &x.Role, &x.CampusID, &x.CampusName, &x.Disabled, &x.TwoFactor); err != nil {
 			rows.Close()
 			serverError(w, err)
 			return
@@ -399,8 +400,8 @@ func (a *App) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 	case req.Name == "":
 		httpError(w, http.StatusBadRequest, "name is required")
 		return
-	case len(req.Password) < 6:
-		httpError(w, http.StatusBadRequest, "password must be at least 6 characters")
+	case passwordProblem(req.Password, req.Username, req.Phone) != "":
+		httpError(w, http.StatusBadRequest, passwordProblem(req.Password, req.Username, req.Phone))
 		return
 	case req.Role != "admin" && req.Role != "teacher" && req.Role != "parent":
 		httpError(w, http.StatusBadRequest, "invalid role")
@@ -425,6 +426,7 @@ func (a *App) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	a.audit(r, id, req.Username, "account_created", req.Role+" by "+u.Username)
 	writeJSON(w, map[string]int64{"id": id})
 }
 
@@ -486,6 +488,9 @@ func (a *App) handleSetDisabled(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	var target string
+	_ = a.db.QueryRow(`SELECT username FROM users WHERE id = ?`, id).Scan(&target)
+	a.audit(r, id, target, map[bool]string{true: "account_disabled", false: "account_enabled"}[req.Disabled], "by "+u.Username)
 	if req.Disabled {
 		_, _ = a.db.Exec(`DELETE FROM sessions WHERE user_id = ?`, id)
 		_, _ = a.db.Exec(`DELETE FROM push_subscriptions WHERE user_id = ?`, id)
@@ -504,6 +509,9 @@ func (a *App) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusBadRequest, "cannot delete yourself")
 		return
 	}
+	var target string
+	_ = a.db.QueryRow(`SELECT username FROM users WHERE id = ?`, id).Scan(&target)
+	a.audit(r, 0, target, "account_deleted", "by "+u.Username)
 	if _, err := a.db.Exec(`DELETE FROM users WHERE id = ?`, id); err != nil {
 		serverError(w, err)
 		return
@@ -521,8 +529,8 @@ func (a *App) handleResetPassword(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &req) {
 		return
 	}
-	if len(req.Password) < 6 {
-		httpError(w, http.StatusBadRequest, "password must be at least 6 characters")
+	if msg := a.passwordProblemFor(id, req.Password); msg != "" {
+		httpError(w, http.StatusBadRequest, msg)
 		return
 	}
 	if err := a.setPassword(id, req.Password); err != nil {
@@ -530,6 +538,9 @@ func (a *App) handleResetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = a.db.Exec(`DELETE FROM sessions WHERE user_id = ?`, id)
+	var username string
+	_ = a.db.QueryRow(`SELECT username FROM users WHERE id = ?`, id).Scan(&username)
+	a.audit(r, id, username, "password_reset", "by "+currentUser(r).Username)
 	okJSON(w)
 }
 

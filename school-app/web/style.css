@@ -439,6 +439,14 @@ body.auth { background:
 .section-head { display: flex; align-items: center; gap: 8px; margin: 4px 2px 10px; }
 .section-head h3 { margin: 0; flex: 1; }
 
+/* Two-step verification */
+.code-input { text-align: center; font-size: 26px !important; letter-spacing: 6px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.tf-qr { display: block; width: 220px; height: 220px; margin: 0 auto 8px; border-radius: 12px; background: #fff; padding: 8px; }
+.tf-secret { display: block; margin-top: 6px; padding: 8px; background: var(--surface-2); border-radius: 8px; word-break: break-all; font-size: 15px; }
+.tf-codes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+.tf-codes code { text-align: center; padding: 8px; background: var(--surface-2); border-radius: 8px; font-size: 16px; font-weight: 700; letter-spacing: 1px; }
+.nag { background: var(--warn-soft); color: var(--warn); }
+
 /* Loading placeholders instead of a plain "loading…" */
 .skeleton { display: grid; gap: 12px; }
 .skeleton > div { height: 92px; border-radius: var(--radius); background: linear-gradient(100deg, var(--surface) 30%, var(--surface-2) 50%, var(--surface) 70%) 0 0 / 300% 100%; animation: shimmer 1.3s ease-in-out infinite; box-shadow: var(--shadow); }

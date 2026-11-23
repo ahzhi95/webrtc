@@ -285,6 +285,24 @@ CREATE TABLE IF NOT EXISTS feedback_images (
 	file_name   TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS security_events (
+	id         INTEGER PRIMARY KEY,
+	user_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+	username   TEXT NOT NULL DEFAULT '',
+	event      TEXT NOT NULL,
+	ip         TEXT NOT NULL DEFAULT '',
+	user_agent TEXT NOT NULL DEFAULT '',
+	detail     TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL
+);
+
+-- One-time backup codes for two-step verification (stored as hashes).
+CREATE TABLE IF NOT EXISTS recovery_codes (
+	user_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	code_hash TEXT NOT NULL,
+	used_at   TEXT NOT NULL DEFAULT ''
+);
+
 CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance(date);
 CREATE INDEX IF NOT EXISTS idx_receipts_status ON receipts(status);
 `
@@ -317,6 +335,9 @@ func openDB(path string) (*sql.DB, error) {
 		`ALTER TABLE students ADD COLUMN emergency_phone TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE students ADD COLUMN notes TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE campuses ADD COLUMN reg_no TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE users ADD COLUMN totp_secret TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE users ADD COLUMN totp_last INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE campuses ADD COLUMN about TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE campuses ADD COLUMN whatsapp TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE campuses ADD COLUMN hours TEXT NOT NULL DEFAULT ''`,
@@ -335,6 +356,16 @@ func openDB(path string) (*sql.DB, error) {
 	} {
 		if _, err := db.Exec(stmt); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			return nil, fmt.Errorf("migrate: %w", err)
+		}
+	}
+	// Sessions are now stored as hashes; older plain-text sessions are dropped once (everyone signs in again).
+	var hashed string
+	if db.QueryRow(`SELECT value FROM settings WHERE key = 'sessions_hashed'`).Scan(&hashed) != nil {
+		if _, err := db.Exec(`DELETE FROM sessions`); err != nil {
+			return nil, err
+		}
+		if _, err := db.Exec(`INSERT INTO settings (key, value) VALUES ('sessions_hashed', '1')`); err != nil {
+			return nil, err
 		}
 	}
 	if err := migrateClassNames(db); err != nil {
@@ -404,8 +435,11 @@ func randomToken(nBytes int) string {
 	return hex.EncodeToString(b)
 }
 
+// bcryptCost 12: about a quarter second per check on a small server — slow for password guessing.
+const bcryptCost = 12
+
 func hashPassword(pw string) (string, error) {
-	h, err := bcrypt.GenerateFromPassword([]byte(pw), bcrypt.DefaultCost)
+	h, err := bcrypt.GenerateFromPassword([]byte(pw), bcryptCost)
 	return string(h), err
 }
 

@@ -241,15 +241,15 @@ func (a *App) handleResetPasswordWithToken(w http.ResponseWriter, r *http.Reques
 	if !readJSON(w, r, &req) {
 		return
 	}
-	if len(req.Password) < 6 {
-		httpError(w, http.StatusBadRequest, "password must be at least 6 characters")
-		return
-	}
 	var id, userID int64
 	err := a.db.QueryRow(`SELECT id, user_id FROM password_resets WHERE token_hash = ? AND used_at = '' AND expires_at > ?`,
 		tokenHash(req.Token), time.Now().Unix()).Scan(&id, &userID)
 	if err != nil {
 		httpError(w, http.StatusBadRequest, "link expired or invalid")
+		return
+	}
+	if msg := a.passwordProblemFor(userID, req.Password); msg != "" {
+		httpError(w, http.StatusBadRequest, msg)
 		return
 	}
 	if err := a.setPassword(userID, req.Password); err != nil {
@@ -259,6 +259,9 @@ func (a *App) handleResetPasswordWithToken(w http.ResponseWriter, r *http.Reques
 	_, _ = a.db.Exec(`UPDATE password_resets SET used_at = ? WHERE user_id = ? AND used_at = ''`, a.nowStr(), userID) // all older links too
 	_, _ = a.db.Exec(`DELETE FROM sessions WHERE user_id = ?`, userID)
 	_, _ = a.db.Exec(`UPDATE reset_requests SET status = 'done', handled_at = ? WHERE user_id = ? AND status = 'open'`, a.nowStr(), userID)
+	var username string
+	_ = a.db.QueryRow(`SELECT username FROM users WHERE id = ?`, userID).Scan(&username)
+	a.audit(r, userID, username, "password_reset", "email link")
 	okJSON(w)
 }
 
@@ -329,6 +332,9 @@ func (a *App) handleResolveResetRequest(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		_, _ = a.db.Exec(`DELETE FROM sessions WHERE user_id = ?`, userID)
+		var username string
+		_ = a.db.QueryRow(`SELECT username FROM users WHERE id = ?`, userID).Scan(&username)
+		a.audit(r, userID, username, "password_reset", "temporary password by "+u.Username)
 		resp["password"] = pw
 	case "dismiss":
 	default:
