@@ -105,9 +105,9 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	var id int64
 	var hash, role string
-	var disabled, twoFactor bool
-	err := a.db.QueryRow(`SELECT id, password_hash, role, disabled, totp_enabled FROM users WHERE username = ?`, username).
-		Scan(&id, &hash, &role, &disabled, &twoFactor)
+	var disabled bool
+	err := a.db.QueryRow(`SELECT id, password_hash, role, disabled FROM users WHERE username = ?`, username).
+		Scan(&id, &hash, &role, &disabled)
 	if err != nil {
 		_ = bcrypt.CompareHashAndPassword(dummyHash, []byte(req.Password)) // same time as a real check
 	} else {
@@ -124,11 +124,6 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if disabled {
 		a.audit(r, id, username, "login_fail", "account disabled")
 		httpError(w, http.StatusForbidden, "account disabled")
-		return
-	}
-	if twoFactor { // password is right; the code from the authenticator app comes next
-		challenge := a.challenges.add(&pendingLogin{userID: id, username: username, role: role, expires: time.Now().Add(5 * time.Minute)})
-		writeJSON(w, map[string]any{"need_2fa": true, "challenge": challenge})
 		return
 	}
 	if err := a.startSession(w, id, role); err != nil {
@@ -150,8 +145,9 @@ func (a *App) handleLogout(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleMe(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
 	resp := map[string]any{"user": u, "late_after": a.lateAfter, "today": a.now().Format("2006-01-02"), "currency": a.currency, "time_zone": a.loc.String(), "unread": a.unreadMessages(u.ID)}
-	on, left := a.twoFactorStatus(u.ID)
-	resp["two_factor"] = map[string]any{"enabled": on, "codes_left": left}
+	var lang string
+	_ = a.db.QueryRow(`SELECT lang FROM users WHERE id = ?`, u.ID).Scan(&lang)
+	resp["lang"] = lang
 	if u.Role == "parent" {
 		children, err := a.queryStudents(`WHERE s.id IN (SELECT student_id FROM parent_students WHERE parent_id = ?)`, u.ID)
 		if err != nil {
@@ -290,4 +286,21 @@ func serverError(w http.ResponseWriter, err error) {
 	}
 	logError(err)
 	httpError(w, http.StatusInternalServerError, "server error")
+}
+
+// handleSetLang: PUT /api/me/lang — the language the user chose; it follows the account to any device.
+func (a *App) handleSetLang(w http.ResponseWriter, r *http.Request) {
+	var req struct{ Lang string }
+	if !readJSON(w, r, &req) {
+		return
+	}
+	if req.Lang != "zh" && req.Lang != "en" {
+		httpError(w, http.StatusBadRequest, "unknown language")
+		return
+	}
+	if _, err := a.db.Exec(`UPDATE users SET lang = ? WHERE id = ?`, req.Lang, currentUser(r).ID); err != nil {
+		serverError(w, err)
+		return
+	}
+	okJSON(w)
 }

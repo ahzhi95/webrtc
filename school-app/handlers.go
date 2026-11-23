@@ -309,13 +309,12 @@ var usernameRe = regexp.MustCompile(`^[a-z0-9._-]{3,32}$`)
 
 type UserRow struct {
 	User
-	TwoFactor bool           `json:"two_factor"`
 	Children  []PhotoStudent `json:"children,omitempty"`
 }
 
 func (a *App) handleListUsers(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
-	q := `SELECT u.id, u.username, u.name, u.phone, u.email, u.role, COALESCE(u.campus_id,0), COALESCE(cp.name,''), u.disabled, u.totp_enabled
+	q := `SELECT u.id, u.username, u.name, u.phone, u.email, u.role, COALESCE(u.campus_id,0), COALESCE(cp.name,''), u.disabled
 		FROM users u LEFT JOIN campuses cp ON cp.id = u.campus_id WHERE 1=1`
 	var args []any
 	if role := r.URL.Query().Get("role"); role != "" {
@@ -336,7 +335,7 @@ func (a *App) handleListUsers(w http.ResponseWriter, r *http.Request) {
 	index := map[int64]int{}
 	for rows.Next() {
 		var x UserRow
-		if err := rows.Scan(&x.ID, &x.Username, &x.Name, &x.Phone, &x.Email, &x.Role, &x.CampusID, &x.CampusName, &x.Disabled, &x.TwoFactor); err != nil {
+		if err := rows.Scan(&x.ID, &x.Username, &x.Name, &x.Phone, &x.Email, &x.Role, &x.CampusID, &x.CampusName, &x.Disabled); err != nil {
 			rows.Close()
 			serverError(w, err)
 			return

@@ -353,11 +353,17 @@ func openDB(path string) (*sql.DB, error) {
 		`ALTER TABLE campuses ADD COLUMN phone TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE campuses ADD COLUMN email TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE campuses ADD COLUMN receipt_prefix TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE users ADD COLUMN lang TEXT NOT NULL DEFAULT ''`,
 	} {
 		if _, err := db.Exec(stmt); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			return nil, fmt.Errorf("migrate: %w", err)
 		}
 	}
+	// Two-step verification was removed: switch it off for anyone who had it, so nobody is locked out.
+	if _, err := db.Exec(`UPDATE users SET totp_enabled = 0, totp_secret = '' WHERE totp_enabled = 1 OR totp_secret != ''`); err != nil {
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
+	_, _ = db.Exec(`DELETE FROM recovery_codes`)
 	// Sessions are now stored as hashes; older plain-text sessions are dropped once (everyone signs in again).
 	var hashed string
 	if db.QueryRow(`SELECT value FROM settings WHERE key = 'sessions_hashed'`).Scan(&hashed) != nil {

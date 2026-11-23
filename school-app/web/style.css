@@ -301,15 +301,6 @@ li.is-disabled { opacity: .6; }
 
 .day-head { font-weight: 700; margin: 4px 0 8px; }
 
-/* Small phones: keep the top bar on one line (the campus is also shown on the Me page). */
-@media (max-width: 380px) {
-  .topbar { gap: 6px; padding-left: 12px; padding-right: 12px; }
-  .topbar h1 { font-size: 16px; }
-  .topbar .campus-tag { display: none; }
-  .topbar .lang-btn { padding: 2px 7px; }
-  /* only the logo on the smallest phones; the name stays available to screen readers */
-  .topbar h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-}
 .badge.wrap { white-space: normal; line-height: 1.3; }
 
 /* ---------- QR cards (print) ---------- */
@@ -440,11 +431,6 @@ body.auth { background:
 .section-head h3 { margin: 0; flex: 1; }
 
 /* Two-step verification */
-.code-input { text-align: center; font-size: 26px !important; letter-spacing: 6px; font-weight: 800; font-variant-numeric: tabular-nums; }
-.tf-qr { display: block; width: 220px; height: 220px; margin: 0 auto 8px; border-radius: 12px; background: #fff; padding: 8px; }
-.tf-secret { display: block; margin-top: 6px; padding: 8px; background: var(--surface-2); border-radius: 8px; word-break: break-all; font-size: 15px; }
-.tf-codes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
-.tf-codes code { text-align: center; padding: 8px; background: var(--surface-2); border-radius: 8px; font-size: 16px; font-weight: 700; letter-spacing: 1px; }
 .nag { background: var(--warn-soft); color: var(--warn); }
 
 /* Loading placeholders instead of a plain "loading…" */
@@ -459,3 +445,16 @@ main > * { animation: rise .28s ease both; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* Top bar after login: greeting and school on the left, bell and a small logo on the right */
+.topbar .tb-id { flex: 1; min-width: 0; line-height: 1.25; }
+.tb-hello { font-size: 16px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tb-hello b { font-weight: 800; color: var(--primary); }
+.tb-school { font-size: 12.5px; font-weight: 700; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tb-logo { width: 36px; height: 36px; object-fit: contain; flex: none; }
+.today-line { margin: -4px 2px 2px; }
+
+/* First login: choose a language */
+.lang-pick { margin-top: 8px; }
+.lang-opt { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 16px; }
+.lang-big { font-size: 22px; font-weight: 800; color: var(--primary); }

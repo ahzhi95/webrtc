@@ -24,7 +24,6 @@ type App struct {
 	lateAfter  string // "HH:MM" local time; check-ins after this are marked late
 	secure     bool   // set the Secure flag on cookies (when served over HTTPS)
 	limiter    *loginLimiter
-	challenges *loginChallenges // sign-ins waiting for the two-step code
 	currency   string           // shown next to amounts, e.g. "RM"
 	notifier   *Notifier
 	mailer     *Mailer // nil when no mail server is configured
@@ -69,7 +68,7 @@ func main() {
 	app := &App{
 		db: db, uploadDir: uploadDir, loc: loc, lateAfter: *late,
 		secure:  *certFile != "" || *behindHTTPS,
-		limiter: newLoginLimiter(), challenges: &loginChallenges{m: map[string]*pendingLogin{}}, currency: *currency, mailer: mailerFromEnv(), baseURL: *publicURL,
+		limiter: newLoginLimiter(), currency: *currency, mailer: mailerFromEnv(), baseURL: *publicURL,
 	}
 	if err := ensureAdmin(db, os.Getenv("ADMIN_PASSWORD")); err != nil {
 		log.Fatal(err)
@@ -114,15 +113,11 @@ func (a *App) routes() http.Handler {
 	// Accounts
 	mux.HandleFunc("POST /api/login", a.handleLogin)
 	mux.HandleFunc("POST /api/logout", a.handleLogout)
-	mux.HandleFunc("POST /api/login/2fa", a.handleLogin2FA)
-	mux.Handle("POST /api/me/2fa/setup", a.auth(a.handle2FASetup))
-	mux.Handle("POST /api/me/2fa/enable", a.auth(a.handle2FAEnable))
-	mux.Handle("POST /api/me/2fa/disable", a.auth(a.handle2FADisable))
-	mux.Handle("POST /api/users/{id}/2fa/reset", a.auth(a.handleReset2FA, "admin"))
 	mux.Handle("GET /api/security/events", a.auth(a.handleSecurityEvents, "admin"))
 	mux.Handle("GET /api/me", a.auth(a.handleMe))
 	mux.Handle("POST /api/me/password", a.auth(a.handleChangePassword))
 	mux.Handle("PUT /api/me", a.auth(a.handleUpdateMe))
+	mux.Handle("PUT /api/me/lang", a.auth(a.handleSetLang))
 	mux.HandleFunc("GET /api/pages/{key}", a.handlePage) // terms and privacy are public
 	mux.Handle("PUT /api/pages/{key}", a.auth(a.handleSavePage, "admin"))
 	mux.Handle("GET /api/schools", a.auth(a.handleSchools))

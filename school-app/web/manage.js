@@ -209,7 +209,6 @@ MANAGE.users = async (body, rerender) => {
         h('b', {}, u.name), ' ', h('span', { class: 'badge' }, t('role_' + u.role)),
         u.role !== 'parent' && h('span', { class: 'badge info', style: 'margin-left:4px' }, u.campus_name || t('allSchools')),
         u.disabled && h('span', { class: 'badge bad', style: 'margin-left:4px' }, t('disabled')),
-        u.two_factor && h('span', { class: 'badge ok', style: 'margin-left:4px', title: t('twoStepTitle') }, '🔐'),
         h('div', { class: 'muted small' }, u.username, u.phone ? ' · ' + u.phone : '', u.email ? ' · ' + u.email : ''),
         u.children && h('div', { class: 'muted small' }, t('children'), ': ', u.children.map((c) => c.name).join('、')))),
     (allCampuses() || u.role !== 'admin') && h('div', { class: 'row', style: 'margin-top:6px;justify-content:flex-end' },
@@ -218,9 +217,6 @@ MANAGE.users = async (body, rerender) => {
         const p = prompt(t('newPwPrompt'));
         if (p) await run(() => api('POST', `/api/users/${u.id}/password`, { password: p }), t('saved'));
       } }, t('resetPw')),
-      u.two_factor && u.id !== me.id && h('button', { class: 'btn sm', onclick: async () => {
-        if (confirm(t('tfResetConfirm', { n: u.name })) && await run(() => api('POST', `/api/users/${u.id}/2fa/reset`), t('saved'))) rerender();
-      } }, t('tfReset')),
       u.id !== me.id && h('button', { class: 'btn sm', onclick: async () => {
         if (!u.disabled && !confirm(t('disableConfirm', { n: u.name }))) return;
         if (await run(() => api('POST', `/api/users/${u.id}/disabled`, { disabled: !u.disabled }), t('saved'))) rerender();
