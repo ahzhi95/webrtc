@@ -157,6 +157,10 @@ window.I18N = {
     scheduledOk: '已设定定时发布',
     'err:at most 5 attachments': '最多 5 个附件',
     'err:only images or PDF files': '附件只能是图片或 PDF',
+    // export
+    export: '导出', exportTitle: '导出付款凭证', dateFrom: '从', dateTo: '到', status: '状态', exportXlsx: '导出 Excel 表格', exportZip: '下载凭证文件（ZIP）',
+    exportHint: '日期是家长上传凭证的日期。ZIP 里有全部凭证文件和一份 Excel 表格。每次导出都会记录导出人和时间。',
+    exportLog: '导出记录', nRecords: '{n} 笔',
     // errors from server
     'err:wrong username or password': '用户名或密码错误',
     'err:too many attempts, try again in 15 minutes': '尝试次数太多，请 15 分钟后再试',
@@ -295,6 +299,9 @@ window.I18N = {
     editNotice: 'Edit notice', audienceFixed: 'The audience of a published notice cannot change.', attachments: 'Attachments', removeFile: 'Remove',
     addAttachments: 'Attachments (images or PDF, up to 5)', publishLater: 'Publish later', publishAt: 'Publish at', pickTime: 'Choose when to publish',
     scheduledOk: 'Scheduled',
+    export: 'Export', exportTitle: 'Export payment receipts', dateFrom: 'From', dateTo: 'To', status: 'Status', exportXlsx: 'Export Excel', exportZip: 'Download files (ZIP)',
+    exportHint: 'Dates are when parents uploaded the receipts. The ZIP holds every file plus the Excel sheet. Each export is logged with who and when.',
+    exportLog: 'Export log', nRecords: '{n} record(s)',
     'err:network': 'Network error, please try again',
   },
 };

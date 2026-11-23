@@ -198,6 +198,8 @@ func (a *App) routes() http.Handler {
 	mux.Handle("POST /api/receipts", a.auth(a.handleUploadReceipt, "parent"))
 	mux.Handle("GET /api/receipts/{id}/file", a.auth(a.handleReceiptFile, "admin", "parent"))
 	mux.Handle("POST /api/receipts/{id}/review", a.auth(a.handleReviewReceipt, "admin"))
+	mux.Handle("GET /api/export/receipts", a.auth(a.handleExportReceipts, "admin"))
+	mux.Handle("GET /api/export/logs", a.auth(a.handleExportLogs, "admin"))
 
 	return mux
 }

@@ -132,7 +132,8 @@ async function reviewReceipts(main) {
   if (receiptFilter.campusId) q.set('campus_id', receiptFilter.campusId);
   const [list, campuses] = await Promise.all([api('GET', '/api/receipts?' + q), allCampuses() ? api('GET', '/api/campuses') : []]);
   main.replaceChildren(h('div', { class: 'stack' },
-    h('h2', {}, t('receiptsTitle')),
+    h('div', { class: 'row' }, h('h2', { class: 'grow', style: 'margin:0' }, t('receiptsTitle')),
+      h('button', { class: 'btn sm', onclick: () => exportDialog() }, '📤 ', t('export'))),
     campuses.length > 1 && h('select', { onchange: (e) => { receiptFilter.campusId = e.target.value; rerender(); } }, campusOptions(campuses, receiptFilter.campusId, t('allSchools'))),
     h('div', { class: 'seg' }, ['pending', 'approved', 'rejected', 'all'].map((s) =>
       h('button', { class: receiptFilter.status === s ? 'on' : null, onclick: () => { receiptFilter.status = s; rerender(); } }, t('st_' + s)))),
@@ -407,3 +408,45 @@ async function openOfficialReceipt(id) {
 }
 
 const receiptButton = (id, number) => id ? h('button', { type: 'button', class: 'btn sm', onclick: () => openOfficialReceipt(id) }, '📄 ', number || t('officialReceipt')) : null;
+
+// ---------- export (凭证导出) ----------
+async function exportDialog() {
+  const [campuses, classes, logs] = await Promise.all([
+    allCampuses() ? api('GET', '/api/campuses') : [], api('GET', '/api/classes'), api('GET', '/api/export/logs'),
+  ]);
+  const campus = h('select', {}, campusOptions(campuses, '', t('allSchools')));
+  const cls = h('select', {}, classOptions(classes, '', t('allClasses')));
+  campus.addEventListener('change', () => cls.replaceChildren(...classOptions(classes.filter((c) => !campus.value || String(c.campus_id) === campus.value), '', t('allClasses'))));
+  const month = todayStr().slice(0, 7);
+  const from = h('input', { type: 'date', value: month + '-01' });
+  const to = h('input', { type: 'date', value: todayStr() });
+  const status = h('select', {}, ['', 'approved', 'pending', 'rejected'].map((s) => h('option', { value: s }, s ? t('st_' + s) : t('st_all'))));
+  const url = (format) => {
+    const q = new URLSearchParams({ format });
+    if (campus.value) q.set('campus_id', campus.value);
+    if (cls.value) q.set('class_id', cls.value);
+    if (from.value) q.set('from', from.value);
+    if (to.value) q.set('to', to.value);
+    if (status.value) q.set('status', status.value);
+    return '/api/export/receipts?' + q;
+  };
+  const dl = (format) => { const a = h('a', { href: url(format), download: '' }); document.body.append(a); a.click(); a.remove(); };
+  const kindLabel = { 'receipts-xlsx': 'Excel', 'receipts-zip': 'ZIP' };
+  openDialog(t('exportTitle'), [
+    allCampuses() && campuses.length > 1 && field(t('campus'), campus),
+    field(t('class'), cls),
+    h('div', { class: 'row' }, h('div', { class: 'grow' }, field(t('dateFrom'), from)), h('div', { class: 'grow' }, field(t('dateTo'), to))),
+    field(t('status'), status),
+    h('div', { class: 'row' },
+      h('button', { type: 'button', class: 'btn primary grow', onclick: () => dl('xlsx') }, '📊 ', t('exportXlsx')),
+      h('button', { type: 'button', class: 'btn grow', onclick: () => dl('zip') }, '🗂 ', t('exportZip'))),
+    h('p', { class: 'small muted' }, t('exportHint')),
+    h('details', {}, h('summary', { class: 'small' }, t('exportLog')),
+      logs.length ? h('ul', { class: 'list small' }, logs.slice(0, 20).map((e) => {
+        const f = JSON.parse(e.filters || '{}');
+        return h('li', {}, h('div', { class: 'row' }, h('b', { class: 'grow' }, e.user), h('span', { class: 'muted' }, dateTime(e.created_at))),
+          h('div', { class: 'muted' }, kindLabel[e.kind] || e.kind, ' · ', t('nRecords', { n: e.count }), ' · ',
+            [f.From || '…', '~', f.To || '…'].join(' '), f.Status ? ' · ' + t('st_' + f.Status) : ''));
+      })) : emptyRow()),
+  ], null);
+}
