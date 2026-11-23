@@ -220,12 +220,13 @@ function render() {
   const root = document.getElementById('app');
   root.replaceChildren();
   if (state.resetToken) { root.append(resetView()); return; }
+  if (!state.me && state.publicPage) { root.append(publicPageView()); return; }
   if (!state.me) { root.append(state.forgot ? forgotView() : loginView()); return; }
   const role = state.me.user.role;
   const tabs = TABS[role];
   if (state.tab === 'student' && !state.studentId) state.tab = null;
   // Pages reached from inside another page rather than from the tab bar.
-  const extra = state.tab === 'student' || state.tab === 'messages' || (state.tab === 'scan' && role !== 'parent');
+  const extra = state.tab === 'student' || state.tab === 'messages' || state.tab === 'info' || (state.tab === 'scan' && role !== 'parent');
   if (!extra && !tabs.some(([k]) => k === state.tab)) state.tab = (location.hash.slice(1) && tabs.some(([k]) => k === location.hash.slice(1))) ? location.hash.slice(1) : tabs[0][0];
   const main = h('main', {});
   root.append(
@@ -299,12 +300,15 @@ function loginView() {
   h('label', { class: 'f' }, t('password'), pw),
   btn,
   h('div', { style: 'text-align:center;margin-top:12px' }, h('button', { type: 'button', class: 'linkbtn', onclick: () => { state.forgot = true; render(); } }, t('forgotPw'))));
+  const legal = h('div', { class: 'small', style: 'text-align:center;margin-top:16px' },
+    h('button', { type: 'button', class: 'linkbtn small', onclick: () => { state.publicPage = 'terms'; render(); } }, t('pageTerms')), ' · ',
+    h('button', { type: 'button', class: 'linkbtn small', onclick: () => { state.publicPage = 'privacy'; render(); } }, t('pagePrivacy')));
   return h('div', { class: 'login' },
     h('div', { class: 'row', style: 'justify-content:flex-end;margin-bottom:8px' }, (() => { const b = langButton(); b.style.color = 'var(--primary)'; return b; })()),
     h('img', { class: 'logo', src: 'icon.svg', alt: '' }),
     h('h1', {}, t('appName')),
     h('p', { class: 'sub muted' }, t('appSub')),
-    form);
+    form, legal);
 }
 
 
@@ -378,6 +382,84 @@ async function resetRequestsCard(rerender) {
           ], null);
           rerender();
         } }, t('resetPw')))))));
+}
+
+// ============ information pages (关于我们) ============
+// Text with "# heading" lines and "- item" lines; everything else is a paragraph.
+function renderDoc(text) {
+  const out = [];
+  let ul = null;
+  for (const raw of text.split('\n')) {
+    const line = raw.trimEnd();
+    if (line.startsWith('- ')) {
+      if (!ul) { ul = h('ul', { class: 'doc-list' }); out.push(ul); }
+      ul.append(h('li', {}, line.slice(2)));
+      continue;
+    }
+    ul = null;
+    if (line.startsWith('# ')) out.push(h('h3', { class: 'doc-h' }, line.slice(2)));
+    else if (line.trim()) out.push(h('p', { class: 'doc-p' }, line));
+  }
+  return h('div', { class: 'doc' }, out);
+}
+
+const waLink = (n) => { let d = (n || '').replace(/\D/g, ''); if (d.startsWith('0')) d = '6' + d; return 'https://wa.me/' + d; };
+
+function schoolCard(s) {
+  const ext = { target: '_blank', rel: 'noopener' };
+  const line = (icon, content) => content && h('div', { class: 'row school-line' }, h('span', { class: 'school-ic', 'aria-hidden': 'true' }, icon), h('div', { class: 'grow' }, content));
+  return h('section', { class: 'card' },
+    h('h3', { style: 'margin:0 0 6px' }, s.name), s.reg_no && h('div', { class: 'muted small' }, s.reg_no),
+    s.about && h('p', { class: 'pre', style: 'margin:10px 0' }, s.about),
+    line('📍', s.address && h('a', { href: 'https://maps.google.com/?q=' + encodeURIComponent(s.address), ...ext }, s.address)),
+    line('📞', s.phone && h('a', { href: 'tel:' + s.phone.replace(/[^\d+]/g, '') }, s.phone)),
+    line('💬', s.whatsapp && h('a', { href: waLink(s.whatsapp), ...ext }, 'WhatsApp ', s.whatsapp)),
+    line('✉️', s.email && h('a', { href: 'mailto:' + s.email }, s.email)),
+    line('🕘', s.hours && h('span', { class: 'pre' }, s.hours)));
+}
+
+async function docSection(key, editable, rerender) {
+  const p = await api('GET', '/api/pages/' + key);
+  return h('section', { class: 'card' },
+    editable && h('div', { class: 'row', style: 'justify-content:flex-end' },
+      p.is_default && h('span', { class: 'badge warn grow' }, t('draftText')),
+      h('button', { class: 'btn sm', onclick: () => {
+        const ta = h('textarea', { style: 'min-height:50vh;font-size:14px' }, p.text);
+        openDialog(t('page' + key[0].toUpperCase() + key.slice(1)), [h('p', { class: 'small muted', style: 'margin-top:0' }, t('docHint')), ta],
+          () => run(async () => { await api('PUT', '/api/pages/' + key, { text: ta.value }); rerender(); }, t('saved')));
+      } }, t('edit'))),
+    renderDoc(p.text));
+}
+
+VIEWS.info = async (main) => {
+  const page = state.infoPage || 'schools';
+  const rerender = () => VIEWS.info(main);
+  const editable = allCampuses() && state.me.user.role === 'admin';
+  const back = h('button', { class: 'btn sm', onclick: () => go(state.backTab || 'me') }, '‹ ', t('back'));
+  let content;
+  if (page === 'schools') {
+    const list = await api('GET', '/api/schools');
+    content = list.length ? list.map(schoolCard) : h('div', { class: 'card empty' }, t('none'));
+  } else content = await docSection(page, editable, rerender);
+  main.replaceChildren(h('div', { class: 'stack' }, h('div', { class: 'row' }, back), content));
+};
+
+function openInfo(page) { state.infoPage = page; state.backTab = state.tab; go('info'); }
+
+// Terms and privacy from the login page (no account needed).
+function publicPageView() {
+  const box = h('div', { class: 'card' }, t('loading'));
+  api('GET', '/api/pages/' + state.publicPage).then((p) => box.replaceChildren(renderDoc(p.text))).catch((e) => box.replaceChildren(e.message));
+  return h('div', { class: 'login', style: 'max-width:720px' },
+    h('div', { class: 'row', style: 'margin-bottom:12px' }, h('button', { class: 'btn sm', onclick: () => { state.publicPage = null; render(); } }, '‹ ', t('backToLogin'))),
+    box);
+}
+
+function infoCard() {
+  const item = (page, icon) => h('li', {}, h('button', { class: 'linkish row', style: 'flex-direction:row;width:100%', onclick: () => openInfo(page) },
+    h('span', {}, icon), h('span', { class: 'grow' }, t('page' + page[0].toUpperCase() + page.slice(1))), h('span', { class: 'muted' }, '›')));
+  return h('section', { class: 'card' }, h('h3', {}, 'ℹ️ ', t('aboutSection')),
+    h('ul', { class: 'list' }, item('schools', '🏫'), item('about', '⭐'), item('terms', '📄'), item('privacy', '🔒')));
 }
 
 // ============ message center (消息) ============
@@ -719,6 +801,7 @@ VIEWS.me = async (main) => {
       h('div', { class: 'seg' }, [['zh', '中文'], ['en', 'English']].map(([k, label]) =>
         h('button', { class: lang === k ? 'on' : null, onclick: () => { lang = k; try { localStorage.setItem('lang', k); } catch (e) { /* ignore */ } render(); } }, label)))),
     u.role !== 'admin' && await myFeedbackCard(rerender),
+    infoCard(),
     detailsForm,
     h('form', { class: 'card', onsubmit: async (e) => {
       e.preventDefault();

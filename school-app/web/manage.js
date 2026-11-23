@@ -282,15 +282,21 @@ MANAGE.campuses = async (body, rerender) => {
     const addr = h('textarea', { style: 'min-height:70px' }, v('address'));
     const phone = h('input', { type: 'tel', value: v('phone') });
     const email = h('input', { type: 'email', value: v('email') });
+    const about = h('textarea', { style: 'min-height:80px', placeholder: t('aboutPh') }, v('about'));
+    const whatsapp = h('input', { type: 'tel', value: v('whatsapp'), placeholder: '012-3456789' });
+    const hours = h('textarea', { style: 'min-height:60px', placeholder: t('hoursPh') }, v('hours'));
     openDialog(c ? t('editCampus') : t('newCampus'), [
       field(t('campusName'), name),
       h('div', { class: 'row' }, h('div', { class: 'grow' }, field(t('receiptPrefix'), prefix)), h('div', { class: 'grow' }, field(t('regNo'), reg))),
       field(t('address'), addr),
       h('div', { class: 'row' }, h('div', { class: 'grow' }, field(t('phone'), phone)), h('div', { class: 'grow' }, field(t('email'), email))),
       h('p', { class: 'small muted' }, t('campusReceiptHint')),
+      field('WhatsApp', whatsapp), field(t('hours'), hours), field(t('schoolAbout'), about),
+      h('p', { class: 'small muted' }, t('campusInfoHint')),
     ], () => run(async () => {
       await api(c ? 'PUT' : 'POST', c ? `/api/campuses/${c.id}` : '/api/campuses',
-        { name: name.value, receipt_prefix: prefix.value, reg_no: reg.value, address: addr.value, phone: phone.value, email: email.value });
+        { name: name.value, receipt_prefix: prefix.value, reg_no: reg.value, address: addr.value, phone: phone.value, email: email.value,
+          about: about.value, whatsapp: whatsapp.value, hours: hours.value });
       rerender();
     }, t('saved')));
   };

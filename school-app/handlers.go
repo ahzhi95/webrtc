@@ -106,10 +106,13 @@ type Campus struct {
 	Classes  int   `json:"classes"`
 	Students int   `json:"students"`
 	CampusInfo
+	About    string `json:"about"`
+	WhatsApp string `json:"whatsapp"`
+	Hours    string `json:"hours"`
 }
 
 func (a *App) handleListCampuses(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query(`SELECT cp.id, cp.name, cp.reg_no, cp.address, cp.phone, cp.email, cp.receipt_prefix,
+	rows, err := a.db.Query(`SELECT cp.id, cp.name, cp.reg_no, cp.address, cp.phone, cp.email, cp.receipt_prefix, cp.about, cp.whatsapp, cp.hours,
 		(SELECT COUNT(*) FROM classes c WHERE c.campus_id = cp.id),
 		(SELECT COUNT(*) FROM students s JOIN classes c ON c.id = s.class_id WHERE c.campus_id = cp.id)
 		FROM campuses cp WHERE (? = 0 OR cp.id = ?) ORDER BY cp.name`, scope(currentUser(r)), scope(currentUser(r)))
@@ -121,7 +124,7 @@ func (a *App) handleListCampuses(w http.ResponseWriter, r *http.Request) {
 	list := []Campus{}
 	for rows.Next() {
 		var c Campus
-		if err := rows.Scan(&c.ID, &c.Name, &c.RegNo, &c.Address, &c.Phone, &c.Email, &c.ReceiptPrefix, &c.Classes, &c.Students); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.RegNo, &c.Address, &c.Phone, &c.Email, &c.ReceiptPrefix, &c.About, &c.WhatsApp, &c.Hours, &c.Classes, &c.Students); err != nil {
 			serverError(w, err)
 			return
 		}
@@ -138,11 +141,16 @@ func (a *App) handleSaveCampus(w http.ResponseWriter, r *http.Request) {
 		httpError(w, http.StatusForbidden, "permission denied")
 		return
 	}
-	var req CampusInfo
+	var req struct {
+		CampusInfo
+		About    string `json:"about"`
+		WhatsApp string `json:"whatsapp"`
+		Hours    string `json:"hours"`
+	}
 	if !readJSON(w, r, &req) {
 		return
 	}
-	for _, f := range []*string{&req.Name, &req.RegNo, &req.Address, &req.Phone, &req.Email, &req.ReceiptPrefix} {
+	for _, f := range []*string{&req.Name, &req.RegNo, &req.Address, &req.Phone, &req.Email, &req.ReceiptPrefix, &req.About, &req.WhatsApp, &req.Hours} {
 		*f = strings.TrimSpace(*f)
 	}
 	req.ReceiptPrefix = strings.ToUpper(req.ReceiptPrefix)
@@ -162,11 +170,12 @@ func (a *App) handleSaveCampus(w http.ResponseWriter, r *http.Request) {
 		if !isTopAdmin(u) { // campus admins keep the name the owner gave
 			_ = a.db.QueryRow(`SELECT name FROM campuses WHERE id = ?`, id).Scan(&req.Name)
 		}
-		_, err = a.db.Exec(`UPDATE campuses SET name = ?, reg_no = ?, address = ?, phone = ?, email = ?, receipt_prefix = ? WHERE id = ?`,
-			req.Name, req.RegNo, req.Address, req.Phone, req.Email, req.ReceiptPrefix, id)
+		_, err = a.db.Exec(`UPDATE campuses SET name = ?, reg_no = ?, address = ?, phone = ?, email = ?, receipt_prefix = ?,
+			about = ?, whatsapp = ?, hours = ? WHERE id = ?`,
+			req.Name, req.RegNo, req.Address, req.Phone, req.Email, req.ReceiptPrefix, req.About, req.WhatsApp, req.Hours, id)
 	} else {
-		_, err = a.db.Exec(`INSERT INTO campuses (name, reg_no, address, phone, email, receipt_prefix) VALUES (?,?,?,?,?,?)`,
-			req.Name, req.RegNo, req.Address, req.Phone, req.Email, req.ReceiptPrefix)
+		_, err = a.db.Exec(`INSERT INTO campuses (name, reg_no, address, phone, email, receipt_prefix, about, whatsapp, hours) VALUES (?,?,?,?,?,?,?,?,?)`,
+			req.Name, req.RegNo, req.Address, req.Phone, req.Email, req.ReceiptPrefix, req.About, req.WhatsApp, req.Hours)
 	}
 	if isUnique(err) {
 		httpError(w, http.StatusConflict, "already exists")

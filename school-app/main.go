@@ -115,6 +115,9 @@ func (a *App) routes() http.Handler {
 	mux.Handle("GET /api/me", a.auth(a.handleMe))
 	mux.Handle("POST /api/me/password", a.auth(a.handleChangePassword))
 	mux.Handle("PUT /api/me", a.auth(a.handleUpdateMe))
+	mux.HandleFunc("GET /api/pages/{key}", a.handlePage) // terms and privacy are public
+	mux.Handle("PUT /api/pages/{key}", a.auth(a.handleSavePage, "admin"))
+	mux.Handle("GET /api/schools", a.auth(a.handleSchools))
 	mux.Handle("GET /api/messages", a.auth(a.handleListMessages))
 	mux.Handle("POST /api/messages/read", a.auth(a.handleReadMessages))
 	mux.Handle("GET /api/messages/unread", a.auth(a.handleUnreadCount))

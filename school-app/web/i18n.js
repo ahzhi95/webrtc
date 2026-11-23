@@ -177,6 +177,11 @@ window.I18N = {
     dueDateOptional: '截止日期（可不填）',
     'err:already reminded in the last 12 hours': '12 小时内已经提醒过了，请稍后再提醒',
     'err:everyone has paid': '大家都已经缴费了',
+    // info pages
+    aboutSection: '关于', pageSchools: '学校资料与联系方式', pageAbout: '关于我们', pageTerms: '用户协议', pagePrivacy: '隐私政策',
+    draftText: '这是系统提供的草稿，请审阅后修改', docHint: '以“# ”开头的一行是标题，以“- ”开头是列表。清空全部文字会恢复为系统草稿。',
+    hours: '上课时间', hoursPh: '例如：星期一至五 7:30am – 6:00pm', schoolAbout: '学校介绍', aboutPh: '简单介绍学校，会显示在家长的“学校资料”页面',
+    campusInfoHint: 'WhatsApp、上课时间和学校介绍会显示在家长的“关于 → 学校资料与联系方式”。',
     // errors from server
     'err:wrong username or password': '用户名或密码错误',
     'err:too many attempts, try again in 15 minutes': '尝试次数太多，请 15 分钟后再试',
@@ -330,6 +335,10 @@ window.I18N = {
     dueDateOptional: 'Due date (optional)',
     'err:already reminded in the last 12 hours': 'Already reminded in the last 12 hours',
     'err:everyone has paid': 'Everyone has paid',
+    aboutSection: 'About', pageSchools: 'School details & contact', pageAbout: 'About us', pageTerms: 'Terms of use', pagePrivacy: 'Privacy policy',
+    draftText: 'Draft text provided by the app; please review and edit', docHint: 'A line starting with "# " is a heading, "- " a list item. Clearing all text restores the draft.',
+    hours: 'Opening hours', hoursPh: 'e.g. Mon–Fri 7:30am – 6:00pm', schoolAbout: 'About the school', aboutPh: 'A short introduction shown to parents',
+    campusInfoHint: 'WhatsApp, opening hours and the introduction are shown to parents under About → School details.',
     'err:network': 'Network error, please try again',
   },
 };
