@@ -234,11 +234,11 @@ function render() {
   const main = h('main', {});
   root.append(
     h('header', { class: 'topbar' },
+      h('button', { class: 'tb-avatar', 'aria-label': t('tab_me'), onclick: () => go('me') }, initial(state.me.user.name)),
       h('div', { class: 'tb-id' },
-        h('div', { class: 'tb-hello' }, greeting(), lang === 'zh' ? '，' : ', ', h('b', {}, state.me.user.name)),
-        h('div', { class: 'tb-school' }, '🏫 ', schoolLabel())),
-      bellButton(),
-      h('img', { class: 'tb-logo', src: 'brand/logo.png', alt: t('appName') })),
+        h('div', { class: 'tb-hello' }, greeting(), ' · ', h('span', { class: 'tb-school' }, schoolLabel())),
+        h('div', { class: 'tb-name' }, state.me.user.name)),
+      bellButton()),
     main,
     h('nav', { class: 'tabs' }, tabs.map(([k, ic]) =>
       h('button', { class: state.tab === k ? 'on' : null, 'aria-current': state.tab === k ? 'page' : null, onclick: () => go(k) },
@@ -280,6 +280,12 @@ function openStudent(id) {
 
 // Which school this account belongs to: staff have one (or all, for the top-level admin);
 // a parent sees their children's school(s).
+// Avatar letter: the Chinese surname when the name has one ("Ms. Tan 陈老师" → 陈), else the first letter.
+function initial(name) {
+  const n = (name || '').trim();
+  return (n.match(/[\u3400-\u9fff]/) || [n[0] || '?'])[0].toUpperCase();
+}
+
 function greeting() {
   const hour = Number(nowHHMM().slice(0, 2));
   return t(hour < 12 ? 'goodMorning' : hour < 18 ? 'goodAfternoon' : 'goodEvening');
