@@ -253,6 +253,10 @@ li.is-disabled { opacity: .6; }
 .import-rows li.imp-err { background: var(--bad-soft); margin: 0 -12px; padding-left: 12px; padding-right: 12px; }
 .warn-alert { background: var(--warn-soft); color: var(--warn); }
 
+.linkbtn { background: none; border: 0; color: var(--primary); cursor: pointer; padding: 4px; font-size: 15px; }
+.linkbtn:hover { text-decoration: underline; }
+.temp-pw { font: 700 28px/1.3 ui-monospace, Menlo, Consolas, monospace; letter-spacing: 2px; text-align: center; padding: 14px; background: var(--surface-2); border-radius: 10px; user-select: all; }
+
 /* ---------- QR cards (print) ---------- */
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
 .qrcard { background: #fff; color: #111; border: 1px dashed #999; border-radius: 10px; padding: 10px; text-align: center; break-inside: avoid; }

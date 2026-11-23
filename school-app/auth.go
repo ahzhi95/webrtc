@@ -225,18 +225,21 @@ type failRecord struct {
 
 func newLoginLimiter() *loginLimiter { return &loginLimiter{fails: map[string]*failRecord{}} }
 
-func (l *loginLimiter) allow(user string) bool {
+func (l *loginLimiter) allow(user string) bool { return l.allowN(user, 8) }
+
+// allowN: at most max attempts per key within 15 minutes.
+func (l *loginLimiter) allowN(key string, max int) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	f := l.fails[user]
-	return f == nil || f.count < 8 || time.Now().After(f.until)
+	f := l.fails[key]
+	return f == nil || f.count < max || time.Now().After(f.until)
 }
 
 func (l *loginLimiter) fail(user string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	f := l.fails[user]
-	if f == nil || (f.count >= 8 && time.Now().After(f.until)) {
+	if f == nil || time.Now().After(f.until) { // window over: start counting again
 		f = &failRecord{}
 		l.fails[user] = f
 	}

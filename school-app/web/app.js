@@ -120,6 +120,11 @@ const VIEWS = {};
 let cleanup = null; // called when leaving a view (e.g. to stop the camera)
 
 async function boot() {
+  // A password reset link from email: #reset=<token>
+  if (location.hash.startsWith('#reset=')) {
+    state.resetToken = location.hash.slice(7);
+    history.replaceState(null, '', location.pathname);
+  }
   try {
     const me = await api('GET', '/api/me');
     state.me = me;
@@ -214,7 +219,8 @@ function render() {
   document.documentElement.lang = lang === 'zh' ? 'zh' : 'en';
   const root = document.getElementById('app');
   root.replaceChildren();
-  if (!state.me) { root.append(loginView()); return; }
+  if (state.resetToken) { root.append(resetView()); return; }
+  if (!state.me) { root.append(state.forgot ? forgotView() : loginView()); return; }
   const role = state.me.user.role;
   const tabs = TABS[role];
   if (state.tab === 'student' && !state.studentId) state.tab = null;
@@ -269,7 +275,8 @@ function loginView() {
   } },
   h('label', { class: 'f' }, t('username'), user),
   h('label', { class: 'f' }, t('password'), pw),
-  btn);
+  btn,
+  h('div', { style: 'text-align:center;margin-top:12px' }, h('button', { type: 'button', class: 'linkbtn', onclick: () => { state.forgot = true; render(); } }, t('forgotPw'))));
   return h('div', { class: 'login' },
     h('div', { class: 'row', style: 'justify-content:flex-end;margin-bottom:8px' }, (() => { const b = langButton(); b.style.color = 'var(--primary)'; return b; })()),
     h('img', { class: 'logo', src: 'icon.svg', alt: '' }),
@@ -278,6 +285,78 @@ function loginView() {
     form);
 }
 
+
+function authShell(title, ...content) {
+  return h('div', { class: 'login' },
+    h('div', { class: 'row', style: 'justify-content:flex-end;margin-bottom:8px' }, (() => { const b = langButton(); b.style.color = 'var(--primary)'; return b; })()),
+    h('img', { class: 'logo', src: 'icon.svg', alt: '' }),
+    h('h1', {}, title), ...content);
+}
+
+// Forgot password: by username, phone or email. The answer is the same whether or not the account exists.
+function forgotView() {
+  const id = h('input', { type: 'text', required: true, autocapitalize: 'none', autocomplete: 'username' });
+  const contact = h('input', { type: 'text', maxlength: 100, placeholder: t('forgotContactPh') });
+  const btn = h('button', { class: 'btn primary block', type: 'submit' }, t('forgotSend'));
+  const back = h('button', { type: 'button', class: 'linkbtn', onclick: () => { state.forgot = false; render(); } }, '‹ ', t('backToLogin'));
+  const form = h('form', { class: 'card', onsubmit: async (e) => {
+    e.preventDefault();
+    btn.disabled = true;
+    const ok = await run(() => api('POST', '/api/password/forgot', { identifier: id.value, contact: contact.value }));
+    btn.disabled = false;
+    if (ok) form.replaceChildren(h('div', { class: 'result info', style: 'text-align:left' }, h('p', { style: 'margin:0' }, t('forgotDone'))), h('div', { style: 'text-align:center;margin-top:12px' }, back));
+  } },
+  h('p', { class: 'small muted', style: 'margin-top:0' }, t('forgotHint')),
+  field(t('forgotId'), id), field(t('forgotContact'), contact), btn,
+  h('div', { style: 'text-align:center;margin-top:12px' }, back));
+  return authShell(t('forgotTitle'), form);
+}
+
+// Set a new password from an emailed link.
+function resetView() {
+  const pw = h('input', { type: 'password', required: true, minlength: 6, autocomplete: 'new-password' });
+  const pw2 = h('input', { type: 'password', required: true, minlength: 6, autocomplete: 'new-password' });
+  const btn = h('button', { class: 'btn primary block', type: 'submit' }, t('save'));
+  const toLogin = () => { state.resetToken = null; state.forgot = false; state.me = null; render(); };
+  const form = h('form', { class: 'card', onsubmit: async (e) => {
+    e.preventDefault();
+    if (pw.value !== pw2.value) { toast(t('pwMismatch')); return; }
+    btn.disabled = true;
+    const ok = await run(() => api('POST', '/api/password/reset', { token: state.resetToken, password: pw.value }));
+    btn.disabled = false;
+    if (ok) form.replaceChildren(h('div', { class: 'result ok' }, h('div', { class: 'big' }, '✓ ', t('resetDone'))),
+      h('button', { type: 'button', class: 'btn primary block', style: 'margin-top:12px', onclick: toLogin }, t('login')));
+  } }, field(t('newPw'), pw), field(t('newPwAgain'), pw2), btn,
+  h('div', { style: 'text-align:center;margin-top:12px' }, h('button', { type: 'button', class: 'linkbtn', onclick: toLogin }, '‹ ', t('backToLogin'))));
+  return authShell(t('resetTitle'), form);
+}
+
+// Password reset requests from people without an email address (shown on the admin overview).
+async function resetRequestsCard(rerender) {
+  const list = await api('GET', '/api/password/requests');
+  if (!list.length) return null;
+  return h('section', { class: 'card', style: 'border-color:var(--warn)' },
+    h('h3', {}, '🔑 ', t('resetRequests', { n: list.length })),
+    h('ul', { class: 'list' }, list.map((x) => h('li', {},
+      h('div', { class: 'row' },
+        h('div', { class: 'grow' }, h('b', {}, x.name), ' ', h('span', { class: 'badge' }, t('role_' + x.role)),
+          h('div', { class: 'muted small' }, x.username, x.phone ? ' · ' + x.phone : '', x.children ? ' · ' + x.children : ''),
+          x.contact && h('div', { class: 'small' }, t('forgotContact'), ': ', x.contact),
+          h('div', { class: 'muted small' }, dateTime(x.created_at)))),
+      h('div', { class: 'row', style: 'justify-content:flex-end;margin-top:6px' },
+        h('button', { class: 'btn sm', onclick: async () => { if (await run(() => api('POST', `/api/password/requests/${x.id}`, { action: 'dismiss' }))) rerender(); } }, t('dismiss')),
+        h('button', { class: 'btn sm primary', onclick: async () => {
+          if (!confirm(t('resetConfirm', { n: x.name }))) return;
+          let r;
+          if (!(await run(async () => { r = await api('POST', `/api/password/requests/${x.id}`, { action: 'reset' }); }))) return;
+          openDialog(t('tempPwTitle'), [
+            h('p', {}, t('tempPwFor', { n: x.name, u: x.username })),
+            h('div', { class: 'temp-pw' }, r.password),
+            h('p', { class: 'small muted' }, t('tempPwHint')),
+          ], null);
+          rerender();
+        } }, t('resetPw')))))));
+}
 
 // ============ parent: home ============
 function todayBox(rec) {
@@ -343,8 +422,10 @@ VIEWS.overview = async (main) => {
   ]);
   const pct = (a, b) => (b ? Math.round(100 * a / b) : 0);
   const stat = (n, label, cls) => h('div', { class: 'stat' }, h('b', { class: cls || '' }, n), h('span', {}, label));
+  const reqCard = await resetRequestsCard(rerender).catch(() => null);
   const parts = [
     h('div', { class: 'row' }, h('h2', { class: 'grow', style: 'margin:0' }, t('overviewTitle')), h('span', { class: 'muted small' }, data.date)),
+    reqCard,
     campuses.length > 1 && h('select', { onchange: (e) => { overviewCampus = e.target.value; rerender(); } }, campusOptions(campuses, overviewCampus, t('allSchools'))),
   ];
   for (const c of data.campuses) {
@@ -446,6 +527,19 @@ VIEWS.me = async (main) => {
   } else if (Notification.permission === 'denied') pushPart = h('p', { class: 'small muted' }, t('pushBlocked'));
   else pushPart = h('button', { class: 'btn primary', onclick: async () => { if (await run(() => push.enable(), t('pushOn'))) rerender(); } }, t('pushEnable'));
 
+  const myName = h('input', { type: 'text', required: true, value: u.name });
+  const myPhone = h('input', { type: 'tel', value: u.phone });
+  const myEmail = h('input', { type: 'email', value: u.email || '' });
+  const detailsForm = h('form', { class: 'card', onsubmit: async (e) => {
+    e.preventDefault();
+    if (await run(() => api('PUT', '/api/me', { name: myName.value, phone: myPhone.value, email: myEmail.value }), t('saved'))) {
+      Object.assign(state.me.user, { name: myName.value.trim(), phone: myPhone.value.trim(), email: myEmail.value.trim() });
+      render();
+    }
+  } }, h('h3', {}, t('myDetails')), field(t('name'), myName),
+  h('div', { class: 'row' }, h('div', { class: 'grow' }, field(t('phone'), myPhone)), h('div', { class: 'grow' }, field(t('email'), myEmail))),
+  h('p', { class: 'small muted', style: 'margin-top:0' }, t('emailHint')),
+  h('button', { class: 'btn primary block' }, t('save')));
   const oldPw = h('input', { type: 'password', required: true, autocomplete: 'current-password' });
   const newPw = h('input', { type: 'password', required: true, minlength: 6, autocomplete: 'new-password' });
   main.replaceChildren(h('div', { class: 'stack' },
@@ -460,6 +554,7 @@ VIEWS.me = async (main) => {
       h('h3', {}, t('language')),
       h('div', { class: 'seg' }, [['zh', '中文'], ['en', 'English']].map(([k, label]) =>
         h('button', { class: lang === k ? 'on' : null, onclick: () => { lang = k; try { localStorage.setItem('lang', k); } catch (e) { /* ignore */ } render(); } }, label)))),
+    detailsForm,
     h('form', { class: 'card', onsubmit: async (e) => {
       e.preventDefault();
       if (await run(() => api('POST', '/api/me/password', { old: oldPw.value, new: newPw.value }), t('pwChanged'))) { oldPw.value = ''; newPw.value = ''; }

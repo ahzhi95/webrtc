@@ -207,6 +207,25 @@ CREATE TABLE IF NOT EXISTS official_receipt_items (
 	amount_cents        INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS password_resets (
+	id         INTEGER PRIMARY KEY,
+	user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	token_hash TEXT NOT NULL UNIQUE,
+	expires_at INTEGER NOT NULL,
+	used_at    TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS reset_requests (
+	id         INTEGER PRIMARY KEY,
+	user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	contact    TEXT NOT NULL DEFAULT '',
+	status     TEXT NOT NULL CHECK (status IN ('open','done','dismissed')),
+	created_at TEXT NOT NULL,
+	handled_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+	handled_at TEXT NOT NULL DEFAULT ''
+);
+
 CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance(date);
 CREATE INDEX IF NOT EXISTS idx_receipts_status ON receipts(status);
 `

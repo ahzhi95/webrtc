@@ -25,6 +25,8 @@ type App struct {
 	limiter   *loginLimiter
 	currency  string // shown next to amounts, e.g. "RM"
 	notifier  *Notifier
+	mailer    *Mailer // nil when no mail server is configured
+	baseURL   string  // public address used in emailed links
 }
 
 func (a *App) now() time.Time { return time.Now().In(a.loc) }
@@ -38,6 +40,7 @@ func main() {
 	late := flag.String("late", "07:30", "check-ins after this time (HH:MM) are marked late")
 	currency := flag.String("currency", "RM", "currency label shown next to amounts")
 	pushContact := flag.String("push-contact", "admin@example.com", "school e-mail or https URL sent to push services as a contact")
+	publicURL := flag.String("public-url", "", "public address of the app, e.g. https://school.example.com (used in password reset emails)")
 	demo := flag.Bool("demo", false, "add sample classes, students and accounts to an empty database")
 	certFile := flag.String("tls-cert", "", "TLS certificate file (enables HTTPS)")
 	keyFile := flag.String("tls-key", "", "TLS key file")
@@ -64,7 +67,7 @@ func main() {
 	app := &App{
 		db: db, uploadDir: uploadDir, loc: loc, lateAfter: *late,
 		secure:  *certFile != "" || *behindHTTPS,
-		limiter: newLoginLimiter(), currency: *currency,
+		limiter: newLoginLimiter(), currency: *currency, mailer: mailerFromEnv(), baseURL: *publicURL,
 	}
 	if err := ensureAdmin(db, os.Getenv("ADMIN_PASSWORD")); err != nil {
 		log.Fatal(err)
@@ -72,6 +75,11 @@ func main() {
 	app.notifier, err = newNotifier(db, *pushContact)
 	if err != nil {
 		log.Fatal(err)
+	}
+	if app.mailer != nil {
+		log.Printf("邮件已设置 / Email configured (%s) — password reset links will be emailed", app.mailer.Host)
+	} else {
+		log.Printf("邮件未设置 / No email server — password reset requests go to the school admins")
 	}
 	if *demo {
 		if err := seedDemo(app); err != nil {
@@ -104,6 +112,11 @@ func (a *App) routes() http.Handler {
 	mux.HandleFunc("POST /api/logout", a.handleLogout)
 	mux.Handle("GET /api/me", a.auth(a.handleMe))
 	mux.Handle("POST /api/me/password", a.auth(a.handleChangePassword))
+	mux.Handle("PUT /api/me", a.auth(a.handleUpdateMe))
+	mux.HandleFunc("POST /api/password/forgot", a.handleForgotPassword)
+	mux.HandleFunc("POST /api/password/reset", a.handleResetPasswordWithToken)
+	mux.Handle("GET /api/password/requests", a.auth(a.handleListResetRequests, "admin"))
+	mux.Handle("POST /api/password/requests/{id}", a.auth(a.handleResolveResetRequest, "admin"))
 
 	// School setup
 	mux.Handle("GET /api/campuses", a.auth(a.handleListCampuses, "admin", "teacher"))
