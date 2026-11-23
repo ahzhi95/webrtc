@@ -90,6 +90,87 @@ async function boot() {
     state.currency = me.currency || 'RM';
   } catch (e) { state.me = null; }
   render();
+  if (state.me) push.refresh();
+}
+
+// ============ push notifications ============
+function b64urlToBytes(s) {
+  const b = atob(s.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - s.length % 4) % 4));
+  return Uint8Array.from(b, (c) => c.charCodeAt(0));
+}
+
+const push = {
+  supported: () => window.isSecureContext && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window,
+  isIOS: () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1),
+  installed: () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true,
+  // On iPhone, web push only works after "Add to Home Screen".
+  needsInstall() { return this.isIOS() && !this.installed(); },
+  async registration() { return navigator.serviceWorker.register('/sw.js'); },
+  async current() {
+    if (!this.supported()) return null;
+    const reg = await navigator.serviceWorker.getRegistration();
+    return reg ? reg.pushManager.getSubscription() : null;
+  },
+  async enable() {
+    if (!this.supported()) throw new ApiError(t('pushUnsupported'));
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted') throw new ApiError(t('pushDenied'));
+    const reg = await this.registration();
+    await navigator.serviceWorker.ready;
+    const { key } = await api('GET', '/api/push/key');
+    let sub = await reg.pushManager.getSubscription();
+    try {
+      // The browser contacts its push service (Google/Apple/Mozilla) here; don't wait forever on a bad connection.
+      if (!sub) {
+        sub = await Promise.race([
+          reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64urlToBytes(key) }),
+          new Promise((resolve, reject) => setTimeout(() => reject(new Error(t('pushTimeout'))), 20000)),
+        ]);
+      }
+    } catch (e) { throw new ApiError(t('pushFailed') + ' ' + e.message); }
+    await api('POST', '/api/push/subscribe', sub.toJSON());
+  },
+  async disable() {
+    const sub = await this.current().catch(() => null);
+    if (!sub) return;
+    await api('POST', '/api/push/unsubscribe', { endpoint: sub.endpoint }).catch(() => {});
+    await sub.unsubscribe().catch(() => {});
+  },
+  // Keep the server's copy of this device's subscription up to date.
+  async refresh() {
+    try {
+      if (!this.supported()) return;
+      await this.registration();
+      const sub = await this.current();
+      if (sub && Notification.permission === 'granted') await api('POST', '/api/push/subscribe', sub.toJSON());
+    } catch (e) { /* not critical */ }
+  },
+};
+
+async function logout() {
+  await push.disable(); // this device should stop getting the previous user's notifications
+  await run(() => api('POST', '/api/logout'));
+  state.me = null;
+  render();
+}
+
+// Card that asks a parent to turn on notifications; returns null when already on.
+async function pushPromptCard(onChange) {
+  if (!push.supported() && !push.needsInstall()) return null;
+  if (push.needsInstall()) {
+    return h('section', { class: 'card' }, h('h3', {}, '🔔 ', t('pushTitle')), h('p', { class: 'small muted', style: 'margin:0' }, t('pushIOSHint')));
+  }
+  if (await push.current()) return null;
+  if (Notification.permission === 'denied') {
+    return h('section', { class: 'card' }, h('h3', {}, '🔕 ', t('pushTitle')), h('p', { class: 'small muted', style: 'margin:0' }, t('pushBlocked')));
+  }
+  const btn = h('button', { class: 'btn primary', onclick: async () => {
+    btn.disabled = true;
+    if (await run(() => push.enable(), t('pushOn'))) onChange();
+    btn.disabled = false;
+  } }, t('pushEnable'));
+  return h('section', { class: 'card' }, h('div', { class: 'row' },
+    h('div', { class: 'grow' }, h('h3', { style: 'margin:0' }, '🔔 ', t('pushTitle')), h('div', { class: 'small muted' }, t('pushWhy'))), btn));
 }
 
 function render() {
@@ -155,6 +236,8 @@ VIEWS.home = async (main) => {
   const children = me.children || [];
   const notices = await api('GET', '/api/announcements');
   const out = [];
+  const pushCard = await pushPromptCard(() => VIEWS.home(main)).catch(() => null);
+  if (pushCard) out.push(pushCard);
   if (!children.length) out.push(h('div', { class: 'card empty' }, t('noChildren')));
   for (const c of children) {
     const recs = await api('GET', `/api/attendance/student/${c.id}`);
@@ -516,6 +599,25 @@ VIEWS.manage = async (main) => {
       u.id !== state.me.user.id && h('button', { class: 'btn sm bad', onclick: async () => { if (confirm(t('confirmDelete')) && await run(() => api('DELETE', `/api/users/${u.id}`), t('deleted'))) rerender(); } }, t('delete')))))));
   }
 
+  if (manageTab === 'notify') {
+    const data = await api('GET', '/api/notifications/log');
+    const phone = h('input', { type: 'tel', required: true, placeholder: '012-3456789' });
+    body.push(h('section', { class: 'card' },
+      h('h3', {}, 'WhatsApp ', data.whatsapp_enabled ? h('span', { class: 'badge ok' }, t('waEnabled')) : h('span', { class: 'badge warn' }, t('waDisabled'))),
+      data.whatsapp_enabled
+        ? h('form', { class: 'row', onsubmit: async (e) => { e.preventDefault(); if (await run(() => api('POST', '/api/notifications/whatsapp-test', { phone: phone.value }), t('waTestSent'))) rerender(); } },
+          h('div', { class: 'grow' }, phone), h('button', { class: 'btn primary' }, t('waTest')))
+        : h('p', { class: 'small muted', style: 'margin:0' }, t('waSetupHint'))));
+    body.push(h('section', { class: 'card' }, h('h3', {}, t('notifyLog')),
+      data.entries.length ? h('ul', { class: 'list' }, data.entries.map((e) => h('li', {},
+        h('div', { class: 'row' },
+          h('span', { class: 'badge ' + (e.ok ? 'ok' : 'bad') }, e.ok ? '✓' : '✗'),
+          h('span', { class: 'badge info' }, e.channel === 'push' ? 'App' : 'WhatsApp'),
+          h('span', { class: 'grow' }, e.user, e.student ? ' ← ' + e.student : ''),
+          h('span', { class: 'muted small' }, dateTime(e.created_at))),
+        h('div', { class: 'muted small', style: 'word-break:break-all' }, e.detail)))) : emptyRow()));
+  }
+
   if (manageTab === 'cards') {
     const students = await api('GET', '/api/students' + (manageClass ? '?class_id=' + manageClass : ''));
     body.push(h('div', { class: 'row no-print' }, h('span', { class: 'muted small grow' }, t('cardsHint')), h('button', { class: 'btn primary', onclick: () => window.print() }, t('print'))));
@@ -526,20 +628,50 @@ VIEWS.manage = async (main) => {
   }
 
   main.replaceChildren(h('div', { class: 'stack' },
-    h('div', { class: 'seg no-print' }, ['students', 'classes', 'users', 'cards'].map((k) =>
+    h('div', { class: 'seg no-print' }, ['students', 'classes', 'users', 'cards', 'notify'].map((k) =>
       h('button', { class: manageTab === k ? 'on' : null, onclick: () => { manageTab = k; rerender(); } }, t('m_' + k)))),
     body));
 };
 
 // ============ me ============
-VIEWS.me = (main) => {
+VIEWS.me = async (main) => {
   const u = state.me.user;
+  const me = await api('GET', '/api/me');
+  const notify = me.notify || {};
+  const rerender = () => VIEWS.me(main);
+  const sub = await push.current().catch(() => null);
+  let pushPart;
+  if (push.needsInstall()) pushPart = h('p', { class: 'small muted' }, t('pushIOSHint'));
+  else if (!push.supported()) pushPart = h('p', { class: 'small muted' }, t('pushUnsupported'));
+  else if (sub) {
+    pushPart = h('div', { class: 'row' },
+      h('span', { class: 'badge ok' }, '✓ ', t('pushOnDevice')), h('span', { class: 'spacer' }),
+      h('button', { class: 'btn sm', onclick: () => run(() => api('POST', '/api/push/test'), t('pushTestSent')) }, t('pushTest')),
+      h('button', { class: 'btn sm bad', onclick: async () => { await push.disable(); rerender(); } }, t('pushDisable')));
+  } else if (Notification.permission === 'denied') pushPart = h('p', { class: 'small muted' }, t('pushBlocked'));
+  else pushPart = h('button', { class: 'btn primary', onclick: async () => { if (await run(() => push.enable(), t('pushOn'))) rerender(); } }, t('pushEnable'));
+
+  let waPart = null;
+  if (u.role === 'parent') {
+    if (!notify.whatsapp_available) waPart = h('p', { class: 'small muted', style: 'margin:0' }, t('waNotAvailable'));
+    else if (!u.phone) waPart = h('p', { class: 'small muted', style: 'margin:0' }, t('waNoPhone'));
+    else {
+      waPart = h('label', { class: 'row' },
+        h('input', { type: 'checkbox', checked: notify.whatsapp, onchange: (e) => run(() => api('POST', '/api/me/notify', { push: true, whatsapp: e.target.checked }), t('saved')) }),
+        h('span', { class: 'grow' }, t('waToggle', { p: u.phone }), h('div', { class: 'small muted' }, t('waPhoneWrong'))));
+    }
+  }
+
   const oldPw = h('input', { type: 'password', required: true, autocomplete: 'current-password' });
   const newPw = h('input', { type: 'password', required: true, minlength: 6, autocomplete: 'new-password' });
   main.replaceChildren(h('div', { class: 'stack' },
     h('section', { class: 'card' },
       h('h2', { style: 'margin:0' }, u.name),
       h('div', { class: 'muted' }, t('role_' + u.role), ' · ', u.username)),
+    h('section', { class: 'card stack' },
+      h('h3', {}, '🔔 ', t('notifications')),
+      h('div', {}, h('div', { class: 'small muted', style: 'margin-bottom:6px' }, t('pushTitle')), pushPart),
+      waPart && h('div', {}, h('div', { class: 'small muted', style: 'margin-bottom:6px' }, 'WhatsApp'), waPart)),
     h('section', { class: 'card' },
       h('h3', {}, t('language')),
       h('div', { class: 'seg' }, [['zh', '中文'], ['en', 'English']].map(([k, label]) =>
@@ -552,7 +684,7 @@ VIEWS.me = (main) => {
     h('label', { class: 'f' }, t('oldPw'), oldPw),
     h('label', { class: 'f' }, t('newPw'), newPw),
     h('button', { class: 'btn primary block' }, t('save'))),
-    h('button', { class: 'btn bad block', onclick: async () => { await run(() => api('POST', '/api/logout')); state.me = null; render(); } }, t('logout'))));
+    h('button', { class: 'btn bad block', onclick: logout }, t('logout'))));
 };
 
 boot();

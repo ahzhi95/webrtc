@@ -46,6 +46,8 @@
 
 * { box-sizing: border-box; }
 html, body { margin: 0; }
+/* keep focused/scrolled-to elements clear of the sticky top bar and fixed bottom tabs */
+html { scroll-padding-top: 64px; scroll-padding-bottom: calc(84px + env(safe-area-inset-bottom)); }
 body {
   background: var(--bg);
   color: var(--text);
@@ -174,6 +176,7 @@ details.add[open] > summary { margin-bottom: 12px; }
   position: fixed; left: 50%; bottom: calc(84px + env(safe-area-inset-bottom)); transform: translateX(-50%);
   background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 10px; z-index: 20;
   max-width: calc(100% - 32px); font-size: 14px; box-shadow: 0 4px 16px rgba(0,0,0,.2);
+  pointer-events: none; /* never block taps on the buttons underneath */
 }
 
 /* ---------- QR cards (print) ---------- */

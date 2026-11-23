@@ -432,6 +432,9 @@ func (a *App) checkin(w http.ResponseWriter, r *http.Request, studentWhere strin
 		return
 	}
 	writeJSON(w, out)
+	if !out.Already {
+		go a.notifier.notifyCheckin(s, out.CheckinAt, out.Late)
+	}
 }
 
 func (a *App) handleScan(w http.ResponseWriter, r *http.Request) {

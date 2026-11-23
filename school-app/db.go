@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"strings"
 
 	"golang.org/x/crypto/bcrypt"
 	_ "modernc.org/sqlite"
@@ -83,6 +84,30 @@ CREATE TABLE IF NOT EXISTS receipts (
 	created_at   TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS settings (
+	key   TEXT PRIMARY KEY,
+	value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+	id         INTEGER PRIMARY KEY,
+	user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	endpoint   TEXT NOT NULL UNIQUE,
+	p256dh     TEXT NOT NULL,
+	auth       TEXT NOT NULL,
+	created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS notification_log (
+	id         INTEGER PRIMARY KEY,
+	user_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+	student_id INTEGER REFERENCES students(id) ON DELETE SET NULL,
+	channel    TEXT NOT NULL,
+	ok         INTEGER NOT NULL,
+	detail     TEXT NOT NULL,
+	created_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance(date);
 CREATE INDEX IF NOT EXISTS idx_receipts_status ON receipts(status);
 `
@@ -96,6 +121,15 @@ func openDB(path string) (*sql.DB, error) {
 	db.SetMaxOpenConns(1)
 	if _, err := db.Exec(schema); err != nil {
 		return nil, fmt.Errorf("create schema: %w", err)
+	}
+	// Columns added after the first version; ignore "duplicate column" on databases that have them.
+	for _, stmt := range []string{
+		`ALTER TABLE users ADD COLUMN notify_push INTEGER NOT NULL DEFAULT 1`,
+		`ALTER TABLE users ADD COLUMN notify_whatsapp INTEGER NOT NULL DEFAULT 1`,
+	} {
+		if _, err := db.Exec(stmt); err != nil && !strings.Contains(err.Error(), "duplicate column") {
+			return nil, fmt.Errorf("migrate: %w", err)
+		}
 	}
 	return db, nil
 }

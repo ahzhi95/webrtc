@@ -24,6 +24,7 @@ type App struct {
 	secure    bool   // set the Secure flag on cookies (when served over HTTPS)
 	limiter   *loginLimiter
 	currency  string // shown next to amounts, e.g. "RM"
+	notifier  *Notifier
 }
 
 func (a *App) now() time.Time { return time.Now().In(a.loc) }
@@ -36,6 +37,10 @@ func main() {
 	tz := flag.String("tz", "Asia/Kuala_Lumpur", "school time zone (IANA name)")
 	late := flag.String("late", "07:30", "check-ins after this time (HH:MM) are marked late")
 	currency := flag.String("currency", "RM", "currency label shown next to amounts")
+	pushContact := flag.String("push-contact", "admin@example.com", "school e-mail or https URL sent to push services as a contact")
+	waTemplate := flag.String("wa-template", "student_checkin", "approved WhatsApp template name (3 body variables: name, time, status)")
+	waLang := flag.String("wa-lang", "zh_CN", "WhatsApp template language code")
+	country := flag.String("country-code", "60", "country calling code added to local phone numbers starting with 0")
 	demo := flag.Bool("demo", false, "add sample classes, students and accounts to an empty database")
 	certFile := flag.String("tls-cert", "", "TLS certificate file (enables HTTPS)")
 	keyFile := flag.String("tls-key", "", "TLS key file")
@@ -65,6 +70,10 @@ func main() {
 		limiter: newLoginLimiter(), currency: *currency,
 	}
 	if err := ensureAdmin(db, os.Getenv("ADMIN_PASSWORD")); err != nil {
+		log.Fatal(err)
+	}
+	app.notifier, err = newNotifier(db, *pushContact, whatsAppFromEnv(*waTemplate, *waLang, *country))
+	if err != nil {
 		log.Fatal(err)
 	}
 	if *demo {
@@ -125,6 +134,15 @@ func (a *App) routes() http.Handler {
 	mux.Handle("GET /api/announcements", a.auth(a.handleListAnnouncements))
 	mux.Handle("POST /api/announcements", a.auth(a.handleCreateAnnouncement, "admin", "teacher"))
 	mux.Handle("DELETE /api/announcements/{id}", a.auth(a.handleDeleteAnnouncement, "admin", "teacher"))
+
+	// Notifications
+	mux.Handle("GET /api/push/key", a.auth(a.handlePushKey))
+	mux.Handle("POST /api/push/subscribe", a.auth(a.handlePushSubscribe))
+	mux.Handle("POST /api/push/unsubscribe", a.auth(a.handlePushUnsubscribe))
+	mux.Handle("POST /api/push/test", a.auth(a.handlePushTest))
+	mux.Handle("POST /api/me/notify", a.auth(a.handleNotifySettings))
+	mux.Handle("GET /api/notifications/log", a.auth(a.handleNotificationLog, "admin"))
+	mux.Handle("POST /api/notifications/whatsapp-test", a.auth(a.handleWhatsAppTest, "admin"))
 
 	// Tuition receipts
 	mux.Handle("GET /api/receipts", a.auth(a.handleListReceipts, "admin", "parent"))

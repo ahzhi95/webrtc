@@ -47,6 +47,38 @@ ADMIN_PASSWORD=换成你的密码 go run . -demo
 4. **管理 → 学生卡**：选择班级 → 打印，剪下来发给学生（可以过塑或放进卡套）
 5. 学生卡丢了：在学生列表点“补办卡”，旧卡会立即作废，再打印新卡
 
+## 到校通知（App 推送 + WhatsApp）
+
+学生扫码打卡后，系统会马上通知这个学生绑定的所有家长：
+
+- **App 推送通知**：家长在“我的”页面点“开启通知”。Android 手机直接可用。**iPhone 要先用 Safari“添加到主屏幕”，再从主屏幕打开 App 才能开启**（iOS 16.4 或以上）。
+- **WhatsApp**：发到家长账号里填的电话号码。家长可以在“我的”页面关闭。
+
+同一个学生一天只通知一次，重复扫码不会重复发送。管理员可以在 **管理 → 通知记录** 看到每条通知是否发送成功。
+
+### 开通 WhatsApp（需要 Meta 商业账号）
+
+WhatsApp 不允许普通号码自动发消息，必须使用官方的 WhatsApp Business Platform（Cloud API）：
+
+1. 到 [Meta for Developers](https://developers.facebook.com/) 建立一个 App，加入 “WhatsApp” 产品，并绑定学校的商业账号和一个专用电话号码
+2. 在 WhatsApp Manager 新建一个**消息模板**（类别选 “Utility”），名称 `student_checkin`，语言“中文（简体）”，内容例如：
+
+   ```
+   您好，{{1}} 已于 {{2}} 到校（{{3}}）。
+   ```
+
+   三个变量依次是：学生姓名、到校时间、准时/迟到。等 Meta 审核通过（通常几分钟到一天）。
+3. 建立一个**永久访问令牌**（System User access token），并记下电话号码的 **Phone number ID**
+4. 启动时设置：
+
+   ```bash
+   WHATSAPP_TOKEN=你的令牌 WHATSAPP_PHONE_ID=你的号码ID ./schoolapp -wa-template student_checkin -wa-lang zh_CN -country-code 60 ...
+   ```
+
+5. 用管理员登录 → **管理 → 通知记录** → 输入自己的号码点“发送测试”
+
+费用：Meta 按每条模板消息收费（Utility 类别，价格看国家）。家长电话可以填本地格式（如 `012-3456789`），系统会自动加上 `-country-code` 国家码。
+
 ## 部署到服务器
 
 ```bash
@@ -77,6 +109,10 @@ school.你的域名.com {
 | `-currency` | `RM` | 金额前显示的货币 |
 | `-behind-https` | 关 | 用 Caddy/Nginx 提供 HTTPS 时打开 |
 | `-tls-cert` / `-tls-key` | 无 | 直接使用 HTTPS 证书 |
+| `-push-contact` | `admin@example.com` | 学校联络邮箱（推送服务需要），请改成真实邮箱 |
+| `-wa-template` | `student_checkin` | WhatsApp 模板名称 |
+| `-wa-lang` | `zh_CN` | WhatsApp 模板语言 |
+| `-country-code` | `60` | 本地电话号码要加的国家码 |
 | `-demo` | 关 | 加入示范数据 |
 
 ### 备份
@@ -98,7 +134,7 @@ school.你的域名.com {
 
 ## 以后可以加的功能
 
-- 打卡后发 WhatsApp / 微信 / 短信通知家长
+- 发布通知时也推送给家长
 - 放学签退
 - 用 Excel / CSV 批量导入学生
 - 请假申请
