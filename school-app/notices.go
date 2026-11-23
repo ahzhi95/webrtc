@@ -102,11 +102,7 @@ func (a *App) handleDeleteAnnouncement(w http.ResponseWriter, r *http.Request) {
 	}
 	u := currentUser(r)
 	q, args := `DELETE FROM announcements WHERE id = ?`, []any{id}
-	switch {
-	case u.Role != "admin": // teachers may only delete their own notices
-		q += ` AND author_id = ?`
-		args = append(args, u.ID)
-	case scope(u) != 0: // campus admins: notices of their campus
+	if scope(u) != 0 { // campus admins: notices of their campus
 		q += ` AND (campus_id = ? OR class_id IN (SELECT id FROM classes WHERE campus_id = ?))`
 		args = append(args, scope(u), scope(u))
 	}

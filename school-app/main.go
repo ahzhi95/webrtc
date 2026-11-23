@@ -1,4 +1,4 @@
-// School app: QR check-in, teacher announcements, and tuition receipt uploads.
+// School app for kindergartens with several campuses: arrival/departure, announcements, fees and receipts, photos.
 package main
 
 import (
@@ -139,8 +139,10 @@ func (a *App) routes() http.Handler {
 
 	// Announcements
 	mux.Handle("GET /api/announcements", a.auth(a.handleListAnnouncements))
-	mux.Handle("POST /api/announcements", a.auth(a.handleCreateAnnouncement, "admin", "teacher"))
-	mux.Handle("DELETE /api/announcements/{id}", a.auth(a.handleDeleteAnnouncement, "admin", "teacher"))
+	// Only admins post notices; teachers take roll call and share photos.
+	mux.Handle("POST /api/announcements", a.auth(a.handleCreateAnnouncement, "admin"))
+	mux.Handle("DELETE /api/announcements/{id}", a.auth(a.handleDeleteAnnouncement, "admin"))
+	mux.Handle("GET /api/overview", a.auth(a.handleOverview, "admin"))
 
 	// Fees
 	mux.Handle("GET /api/fee-items", a.auth(a.handleListFeeItems, "admin"))

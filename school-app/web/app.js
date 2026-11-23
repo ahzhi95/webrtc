@@ -114,7 +114,7 @@ const state = { me: null, tab: null, currency: 'RM', studentId: 0, backTab: null
 const TABS = {
   parent: [['home', '🏠'], ['photos', '🖼️'], ['notices', '📢'], ['receipts', '🧾'], ['me', '👤']],
   teacher: [['scan', '📷'], ['attendance', '✅'], ['photos', '🖼️'], ['notices', '📢'], ['me', '👤']],
-  admin: [['scan', '📷'], ['attendance', '✅'], ['photos', '🖼️'], ['notices', '📢'], ['receipts', '🧾'], ['manage', '⚙️'], ['me', '👤']],
+  admin: [['overview', '📊'], ['attendance', '✅'], ['photos', '🖼️'], ['notices', '📢'], ['receipts', '🧾'], ['manage', '⚙️'], ['me', '👤']],
 };
 const VIEWS = {};
 let cleanup = null; // called when leaving a view (e.g. to stop the camera)
@@ -218,7 +218,9 @@ function render() {
   const role = state.me.user.role;
   const tabs = TABS[role];
   if (state.tab === 'student' && !state.studentId) state.tab = null;
-  if (state.tab !== 'student' && !tabs.some(([k]) => k === state.tab)) state.tab = (location.hash.slice(1) && tabs.some(([k]) => k === location.hash.slice(1))) ? location.hash.slice(1) : tabs[0][0];
+  // Pages reached from inside another page rather than from the tab bar.
+  const extra = state.tab === 'student' || (state.tab === 'scan' && role !== 'parent');
+  if (!extra && !tabs.some(([k]) => k === state.tab)) state.tab = (location.hash.slice(1) && tabs.some(([k]) => k === location.hash.slice(1))) ? location.hash.slice(1) : tabs[0][0];
   const main = h('main', {});
   root.append(
     h('header', { class: 'topbar' },
@@ -331,6 +333,55 @@ VIEWS.home = async (main) => {
   main.replaceChildren(h('div', { class: 'stack' }, out));
 };
 
+// ============ admin: school overview (学校概况) ============
+let overviewCampus = '';
+VIEWS.overview = async (main) => {
+  const rerender = () => VIEWS.overview(main);
+  const [data, campuses] = await Promise.all([
+    api('GET', '/api/overview' + (overviewCampus ? '?campus_id=' + overviewCampus : '')),
+    allCampuses() ? api('GET', '/api/campuses') : [],
+  ]);
+  const pct = (a, b) => (b ? Math.round(100 * a / b) : 0);
+  const stat = (n, label, cls) => h('div', { class: 'stat' }, h('b', { class: cls || '' }, n), h('span', {}, label));
+  const parts = [
+    h('div', { class: 'row' }, h('h2', { class: 'grow', style: 'margin:0' }, t('overviewTitle')), h('span', { class: 'muted small' }, data.date)),
+    campuses.length > 1 && h('select', { onchange: (e) => { overviewCampus = e.target.value; rerender(); } }, campusOptions(campuses, overviewCampus, t('allSchools'))),
+  ];
+  for (const c of data.campuses) {
+    const absent = c.students - c.present;
+    parts.push(h('section', { class: 'card stack' },
+      h('h3', { style: 'margin:0' }, c.name),
+      h('div', {},
+        h('div', { class: 'row small' }, h('b', { class: 'grow' }, '🌅 ', t('todayArrival')), h('span', { class: 'muted' }, `${pct(c.present, c.students)}%`)),
+        h('div', { class: 'progress' }, h('div', { style: `width:${pct(c.present, c.students)}%` })),
+        h('div', { class: 'stats stats4' },
+          stat(h('span', {}, c.present, h('span', { class: 'muted small' }, ' / ', c.students)), t('present')),
+          stat(absent, t('absent'), absent ? 'bad-text' : ''), stat(c.late, t('late'), c.late ? 'warn-text' : ''), stat(c.left, t('leftCount')))),
+      c.classes.length > 0 && h('table', { class: 'mini-table' },
+        h('thead', {}, h('tr', {}, h('th', {}, t('class')), h('th', {}, t('present')), h('th', {}, t('absent')), h('th', {}, t('late')), h('th', {}, t('leftCount')))),
+        h('tbody', {}, c.classes.map((k) => h('tr', { class: 'clickable', onclick: () => { attFilter.classId = String(k.id); attFilter.campusId = ''; attFilter.date = ''; go('attendance'); } },
+          h('td', {}, k.name, h('div', { class: 'muted small' }, k.teacher || '—')),
+          h('td', {}, k.present, '/', k.students),
+          h('td', { class: k.students - k.present ? 'bad-text' : '' }, k.students - k.present),
+          h('td', { class: k.late ? 'warn-text' : '' }, k.late),
+          h('td', {}, k.left))))),
+      h('div', {},
+        h('b', { class: 'small' }, '🧾 ', t('feesStatus')),
+        h('ul', { class: 'list' },
+          h('li', { class: 'row' }, h('span', { class: 'grow' }, t('pendingReceipts')),
+            h('b', { class: c.pending_receipts ? 'warn-text' : '' }, c.pending_receipts),
+            c.pending_receipts > 0 && h('button', { class: 'btn sm primary', onclick: () => { receiptFilter.status = 'pending'; receiptFilter.campusId = allCampuses() ? String(c.id) : ''; go('receipts'); } }, t('review'))),
+          h('li', { class: 'row' }, h('span', { class: 'grow' }, t('overdueFees', { n: c.overdue_count })), h('b', { class: c.overdue_cents ? 'bad-text' : '' }, money(c.overdue_cents))),
+          h('li', { class: 'row' }, h('span', { class: 'grow' }, t('unpaidFees', { n: c.unpaid_count })), h('b', {}, money(c.unpaid_cents))),
+          h('li', { class: 'row' }, h('span', { class: 'grow' }, t('collectedMonth')), h('b', { class: 'ok-text' }, money(c.collected_month_cents)))))));
+  }
+  if (!data.campuses.length) parts.push(h('div', { class: 'card' }, emptyRow()));
+  parts.push(h('div', { class: 'row' },
+    h('button', { class: 'btn grow', onclick: () => go('notices') }, '📢 ', t('newNotice')),
+    h('button', { class: 'btn grow', onclick: () => { manageTab = 'fees'; go('manage'); } }, '🧾 ', t('newFee'))));
+  main.replaceChildren(h('div', { class: 'stack' }, parts));
+};
+
 // ============ notices ============
 function audienceLabel(n) {
   if (n.class_name) return (allCampuses() || state.me.user.role === 'parent' ? n.campus_name + ' · ' : '') + n.class_name;
@@ -353,7 +404,7 @@ VIEWS.notices = async (main) => {
   const list = await api('GET', '/api/announcements');
   const rerender = () => VIEWS.notices(main);
   let form = null;
-  if (u.role !== 'parent') {
+  if (u.role === 'admin') {
     const [classes, campuses] = await Promise.all([api('GET', '/api/classes'), api('GET', '/api/campuses')]);
     const title = h('input', { type: 'text', required: true, maxlength: 120 });
     const body = h('textarea', { required: true });
@@ -376,7 +427,7 @@ VIEWS.notices = async (main) => {
     h('h2', {}, t('noticesTitle')),
     form,
     list.length ? list.map((n) => h('section', { class: 'card' },
-      noticeItem(n, u.role === 'admin' || n.author_id === u.id, rerender))) : h('div', { class: 'card' }, emptyRow())));
+      noticeItem(n, u.role === 'admin', rerender))) : h('div', { class: 'card' }, emptyRow())));
 };
 
 // ============ me ============

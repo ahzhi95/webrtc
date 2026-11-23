@@ -120,6 +120,10 @@ window.I18N = {
     address: '地址', campusReceiptHint: '这些资料会印在正式收据上。收据编号格式：前缀-年份-流水号，例如 TTM-2026-0001。',
     campusHintOwn: '你可以修改本校区的地址、电话等资料（会印在收据上）。',
     'err:receipt prefix: 1-8 letters or numbers': '收据前缀只能是 1-8 个英文字母或数字',
+    // overview
+    tab_overview: '概况', overviewTitle: '学校概况', todayArrival: '今天到园', feesStatus: '缴费状况',
+    pendingReceipts: '待审核的付款凭证', review: '去审核', overdueFees: '逾期未缴（{n} 项）', unpaidFees: '全部待缴（{n} 项）',
+    collectedMonth: '本月已收',
     // errors from server
     'err:wrong username or password': '用户名或密码错误',
     'err:too many attempts, try again in 15 minutes': '尝试次数太多，请 15 分钟后再试',
@@ -230,6 +234,9 @@ window.I18N = {
     receiptVoided: 'This receipt has been voided: {reason}', receiptPrefix: 'Receipt prefix', regNo: 'Registration no.', regNoPh: 'e.g. KPM / SSM no.',
     address: 'Address', campusReceiptHint: 'Printed on official receipts. Receipt numbers look like PREFIX-YEAR-NUMBER, e.g. TTM-2026-0001.',
     campusHintOwn: 'You can update your campus address, phone and other details (printed on receipts).',
+    tab_overview: 'Overview', overviewTitle: 'School overview', todayArrival: 'Arrived today', feesStatus: 'Fees',
+    pendingReceipts: 'Receipts to review', review: 'Review', overdueFees: 'Overdue ({n})', unpaidFees: 'All unpaid ({n})',
+    collectedMonth: 'Collected this month',
     'err:network': 'Network error, please try again',
   },
 };

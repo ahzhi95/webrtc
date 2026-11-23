@@ -93,6 +93,7 @@ VIEWS.scan = async (main) => {
   }
 
   main.replaceChildren(h('div', { class: 'stack' },
+    state.me.user.role === 'admin' && h('div', { class: 'row' }, h('button', { class: 'btn sm', onclick: () => go('attendance') }, '‹ ', t('back'))),
     h('div', { class: 'row' }, h('h2', { class: 'grow', style: 'margin:0' }, t('scanTitle')), toggle),
     h('div', { class: 'seg mode-seg' }, ['in', 'out'].map((m) => h('button', { class: scanMode === m ? 'on' : null, onclick: () => {
       scanMode = m; lastCode = '';
@@ -201,7 +202,8 @@ VIEWS.attendance = async (main) => {
   } }, t('selectAll'));
 
   main.replaceChildren(h('div', { class: 'stack' },
-    h('h2', {}, t('attendanceTitle')),
+    h('div', { class: 'row' }, h('h2', { class: 'grow', style: 'margin:0' }, t('attendanceTitle')),
+      state.me.user.role === 'admin' && h('button', { class: 'btn sm', onclick: () => go('scan') }, '📷 ', t('tab_scan'))),
     h('div', { class: 'row' },
       h('input', { type: 'date', class: 'grow', value: data.date, max: data.today, onchange: (e) => { attFilter.date = e.target.value; rerender(); } }),
       allCampuses() && campuses.length > 1 && h('select', { class: 'grow', onchange: (e) => { attFilter.campusId = e.target.value; attFilter.classId = ''; rerender(); } }, campusOptions(campuses, attFilter.campusId, t('allSchools'))),

@@ -240,6 +240,14 @@ li.is-disabled { opacity: .6; }
 
 .receipt-preview { width: 100%; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 12px; background: #fff; }
 
+.ok-text { color: var(--ok); }
+.mini-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.mini-table th { text-align: left; font-weight: 600; color: var(--muted); font-size: 12px; padding: 6px 4px; border-bottom: 1px solid var(--border); }
+.mini-table td { padding: 8px 4px; border-bottom: 1px solid var(--border); vertical-align: top; font-variant-numeric: tabular-nums; }
+.mini-table th:not(:first-child), .mini-table td:not(:first-child) { text-align: center; width: 15%; }
+.mini-table tr.clickable { cursor: pointer; }
+.mini-table tr.clickable:hover td { background: var(--surface-2); }
+
 /* ---------- QR cards (print) ---------- */
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
 .qrcard { background: #fff; color: #111; border: 1px dashed #999; border-radius: 10px; padding: 10px; text-align: center; break-inside: avoid; }
