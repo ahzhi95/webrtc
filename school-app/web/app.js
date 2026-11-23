@@ -532,46 +532,105 @@ function audienceLabel(n) {
   return n.campus_name || t('allSchools');
 }
 
-function noticeItem(n, canDelete, onDelete) {
-  return h('article', {},
+function noticeFiles(n) {
+  if (!n.files || !n.files.length) return null;
+  const src = (f) => `/api/announcements/${n.id}/files/${f.id}`;
+  const imgs = n.files.filter((f) => f.type.startsWith('image/'));
+  const docs = n.files.filter((f) => !f.type.startsWith('image/'));
+  return h('div', { class: 'notice-files' },
+    imgs.length > 0 && h('div', { class: 'pgrid' }, imgs.map((f) => h('a', { class: 'pthumb', href: src(f), target: '_blank', rel: 'noopener' }, h('img', { src: src(f), alt: f.name, loading: 'lazy' })))),
+    docs.map((f) => h('a', { class: 'file-chip', href: src(f), target: '_blank', rel: 'noopener' }, '📄 ', f.name, h('span', { class: 'muted small' }, ` ${Math.max(1, Math.round(f.size / 1024))} KB`))));
+}
+
+function noticeItem(n, canManage, onChange) {
+  const scheduled = !n.published;
+  return h('article', { class: n.retracted_at ? 'is-retracted' : null },
     h('div', { class: 'row' },
-      h('h3', { class: 'grow', style: 'margin:0' }, n.title),
+      h('h3', { class: 'grow', style: 'margin:0' }, !n.read && h('span', { class: 'badge bad', style: 'margin-right:6px' }, t('newBadge')), n.title),
       h('span', { class: 'badge info' }, audienceLabel(n))),
-    h('div', { class: 'muted small' }, dateTime(n.created_at), ' · ', n.author_name),
-    h('p', { class: 'pre', style: 'margin:8px 0 0' }, n.body),
-    canDelete && h('div', { class: 'row', style: 'justify-content:flex-end' },
-      h('button', { class: 'btn sm bad', onclick: async () => { if (confirm(t('confirmDelete')) && await run(() => api('DELETE', `/api/announcements/${n.id}`), t('deleted'))) onDelete(); } }, t('delete'))));
+    h('div', { class: 'muted small' },
+      scheduled ? h('span', { class: 'badge warn' }, '⏰ ', t('scheduledFor', { t: dateTime(n.publish_at) })) : dateTime(n.created_at),
+      ' · ', n.author_name,
+      n.edited_at && h('span', {}, ' · ', t('editedOn', { t: dateTime(n.edited_at) })),
+      n.retracted_at && h('span', { class: 'badge bad', style: 'margin-left:6px' }, t('retracted'))),
+    h('p', { class: 'pre', style: 'margin:8px 0' }, n.body),
+    noticeFiles(n),
+    canManage && h('div', { class: 'row', style: 'margin-top:8px' },
+      n.published && !n.retracted_at && h('button', { class: 'btn sm', onclick: () => noticeReads(n) }, '👁 ', t('readStats', { r: n.read_count, n: n.recipients })),
+      h('span', { class: 'spacer' }),
+      !n.retracted_at && h('button', { class: 'btn sm', onclick: () => noticeDialog(n, onChange) }, t('edit')),
+      !n.retracted_at && h('button', { class: 'btn sm', onclick: async () => {
+        if (confirm(t(scheduled ? 'cancelScheduledConfirm' : 'retractConfirm')) && await run(() => api('POST', `/api/announcements/${n.id}/retract`), t('saved'))) onChange();
+      } }, scheduled ? t('cancelSchedule') : t('retract')),
+      h('button', { class: 'btn sm bad', onclick: async () => { if (confirm(t('confirmDelete')) && await run(() => api('DELETE', `/api/announcements/${n.id}`), t('deleted'))) onChange(); } }, t('delete'))));
+}
+
+async function noticeReads(n) {
+  const list = await api('GET', `/api/announcements/${n.id}/reads`);
+  const unread = list.filter((x) => !x.read_at);
+  openDialog(t('readStats', { r: list.length - unread.length, n: list.length }), [
+    h('p', { class: 'small muted', style: 'margin-top:0' }, n.title),
+    list.length ? h('ul', { class: 'list' }, list.map((x) => h('li', { class: 'row' },
+      h('div', { class: 'grow' }, h('b', {}, x.name), h('div', { class: 'muted small' }, x.children, x.phone ? ' · ' + x.phone : '')),
+      x.read_at ? h('span', { class: 'badge ok' }, '✓ ', dateTime(x.read_at)) : h('span', { class: 'badge warn' }, t('unread'))))) : emptyRow(),
+  ], null);
+}
+
+// New notice or edit. Audience and time can change only before it is published.
+async function noticeDialog(n, done) {
+  const u = state.me.user;
+  const [classes, campuses] = await Promise.all([api('GET', '/api/classes'), api('GET', '/api/campuses')]);
+  const fixed = n && n.published;
+  const title = h('input', { type: 'text', required: true, maxlength: 120, value: n ? n.title : '' });
+  const body = h('textarea', { required: true }, n ? n.body : '');
+  const cur = n ? (n.class_id ? 'class:' + n.class_id : n.campus_id ? 'campus:' + n.campus_id : '') : '';
+  const aud = h('select', { disabled: fixed },
+    !u.campus_id && h('option', { value: '', selected: cur === '' }, t('allSchools')),
+    campuses.map((c) => h('option', { value: 'campus:' + c.id, selected: cur === 'campus:' + c.id }, c.name + ' · ' + t('wholeCampus'))),
+    classes.map((c) => h('option', { value: 'class:' + c.id, selected: cur === 'class:' + c.id }, className(c))));
+  const when = h('input', { type: 'datetime-local', value: n && !n.published ? n.publish_at.slice(0, 16) : '', min: todayStr() + 'T00:00' });
+  const later = h('input', { type: 'checkbox', checked: !!(n && !n.published), onchange: () => { whenBox.hidden = !later.checked; } });
+  const whenBox = h('div', { hidden: !(n && !n.published) }, field(t('publishAt'), when));
+  const files = h('input', { type: 'file', multiple: true, accept: 'image/*,application/pdf' });
+  const remove = new Set();
+  const existing = n && n.files.length ? h('div', { class: 'f' }, h('div', { class: 'small muted' }, t('attachments')),
+    n.files.map((f) => h('label', { class: 'row small' }, h('input', { type: 'checkbox', onchange: (e) => { e.target.checked ? remove.add(f.id) : remove.delete(f.id); } }), t('removeFile'), ': ', f.name))) : null;
+  openDialog(n ? t('editNotice') : t('newNotice'), [
+    field(t('audience'), aud), fixed && h('p', { class: 'small muted', style: 'margin-top:-6px' }, t('audienceFixed')),
+    field(t('title'), title), field(t('content'), body),
+    existing, field(t('addAttachments'), files),
+    !fixed && h('label', { class: 'row small', style: 'margin-bottom:10px' }, later, t('publishLater')), !fixed && whenBox,
+  ], () => run(async () => {
+    const fd = new FormData();
+    const [kind, id] = aud.value.split(':');
+    fd.set('title', title.value); fd.set('body', body.value);
+    fd.set('campus_id', kind === 'campus' ? id : '0'); fd.set('class_id', kind === 'class' ? id : '0');
+    if (!fixed && later.checked) {
+      if (!when.value) throw new ApiError(t('pickTime'));
+      fd.set('publish_at', when.value);
+    }
+    remove.forEach((fid) => fd.append('remove_file', fid));
+    for (const f of files.files) fd.append('file', f.type.startsWith('image/') ? new File([await shrinkImage(f)], f.name, { type: 'image/jpeg' }) : f);
+    const r = await api(n ? 'PUT' : 'POST', n ? `/api/announcements/${n.id}` : '/api/announcements', fd);
+    toast(n ? t('saved') : r.scheduled ? t('scheduledOk') : t('published'));
+    done();
+  }), n ? t('save') : t('publish'));
 }
 
 VIEWS.notices = async (main) => {
   const u = state.me.user;
   const list = await api('GET', '/api/announcements');
   const rerender = () => VIEWS.notices(main);
-  let form = null;
-  if (u.role === 'admin') {
-    const [classes, campuses] = await Promise.all([api('GET', '/api/classes'), api('GET', '/api/campuses')]);
-    const title = h('input', { type: 'text', required: true, maxlength: 120 });
-    const body = h('textarea', { required: true });
-    // Audience: everyone (top level only), a campus, or a class. Value "campus:ID" or "class:ID".
-    const aud = h('select', {},
-      !u.campus_id && h('option', { value: '' }, t('allSchools')),
-      campuses.map((c) => h('option', { value: 'campus:' + c.id }, c.name + ' · ' + t('wholeCampus'))),
-      classes.map((c) => h('option', { value: 'class:' + c.id }, className(c))));
-    form = h('details', { class: 'add card' }, h('summary', {}, t('newNotice')),
-      h('form', { onsubmit: async (e) => {
-        e.preventDefault();
-        const [kind, id] = aud.value.split(':');
-        const req = { title: title.value, body: body.value, campus_id: kind === 'campus' ? Number(id) : 0, class_id: kind === 'class' ? Number(id) : 0 };
-        if (await run(() => api('POST', '/api/announcements', req), t('published'))) rerender();
-      } },
-      field(t('audience'), aud), field(t('title'), title), field(t('content'), body),
-      h('button', { class: 'btn primary block', type: 'submit' }, t('publish'))));
-  }
   main.replaceChildren(h('div', { class: 'stack' },
-    h('h2', {}, t('noticesTitle')),
-    form,
-    list.length ? list.map((n) => h('section', { class: 'card' },
-      noticeItem(n, u.role === 'admin', rerender))) : h('div', { class: 'card' }, emptyRow())));
+    h('div', { class: 'row' }, h('h2', { class: 'grow', style: 'margin:0' }, t('noticesTitle')),
+      u.role === 'admin' && h('button', { class: 'btn primary', onclick: () => noticeDialog(null, rerender) }, t('newNotice'))),
+    list.length ? list.map((n) => h('section', { class: 'card' + (n.read ? '' : ' unread-card') }, noticeItem(n, u.role === 'admin', rerender))) : h('div', { class: 'card' }, emptyRow())));
+  // Opening the list counts as reading the notices on it.
+  const unread = list.filter((n) => !n.read).map((n) => n.id);
+  if (u.role === 'parent' && unread.length) {
+    const r = await api('POST', '/api/announcements/read', { ids: unread }).catch(() => null);
+    if (r) { state.me.unread = r.unread; document.querySelector('.bell')?.replaceWith(bellButton()); }
+  }
 };
 
 // ============ me ============

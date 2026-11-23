@@ -267,6 +267,11 @@ li.is-disabled { opacity: .6; }
 .msg:not(.unread) { opacity: .75; }
 .dot { width: 9px; height: 9px; border-radius: 50%; background: #e5484d; flex: none; }
 
+.notice-files { display: flex; flex-direction: column; gap: 8px; }
+.file-chip { display: inline-flex; gap: 6px; align-items: center; padding: 8px 12px; border: 1px solid var(--border); border-radius: 10px; text-decoration: none; color: var(--text); background: var(--surface-2); width: fit-content; max-width: 100%; overflow: hidden; }
+.unread-card { border-color: var(--primary); }
+.is-retracted { opacity: .6; }
+
 /* ---------- QR cards (print) ---------- */
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
 .qrcard { background: #fff; color: #111; border: 1px dashed #999; border-radius: 10px; padding: 10px; text-align: center; break-inside: avoid; }

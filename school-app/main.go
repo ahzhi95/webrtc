@@ -88,6 +88,7 @@ func main() {
 		}
 	}
 	go app.cleanSessions()
+	go app.publishDue()
 
 	srv := &http.Server{
 		Addr:              *addr,
@@ -161,6 +162,11 @@ func (a *App) routes() http.Handler {
 	// Only admins post notices; teachers take roll call and share photos.
 	mux.Handle("POST /api/announcements", a.auth(a.handleCreateAnnouncement, "admin"))
 	mux.Handle("DELETE /api/announcements/{id}", a.auth(a.handleDeleteAnnouncement, "admin"))
+	mux.Handle("PUT /api/announcements/{id}", a.auth(a.handleUpdateAnnouncement, "admin"))
+	mux.Handle("POST /api/announcements/{id}/retract", a.auth(a.handleRetractAnnouncement, "admin"))
+	mux.Handle("GET /api/announcements/{id}/reads", a.auth(a.handleNoticeReads, "admin"))
+	mux.Handle("GET /api/announcements/{id}/files/{fid}", a.auth(a.handleNoticeFile))
+	mux.Handle("POST /api/announcements/read", a.auth(a.handleMarkNoticesRead, "parent"))
 	mux.Handle("GET /api/overview", a.auth(a.handleOverview, "admin"))
 
 	// Fees

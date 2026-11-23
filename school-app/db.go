@@ -239,6 +239,23 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 CREATE INDEX IF NOT EXISTS idx_messages_user ON messages(user_id, id);
 
+CREATE TABLE IF NOT EXISTS notice_attachments (
+	id         INTEGER PRIMARY KEY,
+	notice_id  INTEGER NOT NULL REFERENCES announcements(id) ON DELETE CASCADE,
+	file_name  TEXT NOT NULL,
+	file_type  TEXT NOT NULL,
+	orig_name  TEXT NOT NULL,
+	size_bytes INTEGER NOT NULL
+);
+
+-- Who a published notice went to, and when each of them read it (阅读统计).
+CREATE TABLE IF NOT EXISTS notice_recipients (
+	notice_id INTEGER NOT NULL REFERENCES announcements(id) ON DELETE CASCADE,
+	user_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	read_at   TEXT NOT NULL DEFAULT '',
+	PRIMARY KEY (notice_id, user_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance(date);
 CREATE INDEX IF NOT EXISTS idx_receipts_status ON receipts(status);
 `
@@ -271,6 +288,10 @@ func openDB(path string) (*sql.DB, error) {
 		`ALTER TABLE students ADD COLUMN emergency_phone TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE students ADD COLUMN notes TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE campuses ADD COLUMN reg_no TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE announcements ADD COLUMN publish_at TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE announcements ADD COLUMN published INTEGER NOT NULL DEFAULT 1`,
+		`ALTER TABLE announcements ADD COLUMN retracted_at TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE announcements ADD COLUMN edited_at TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE campuses ADD COLUMN address TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE campuses ADD COLUMN phone TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE campuses ADD COLUMN email TEXT NOT NULL DEFAULT ''`,

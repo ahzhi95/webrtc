@@ -25,7 +25,7 @@ window.I18N = {
     todayStatus: '今天', arrivedAt: '{t} 已到园', notArrived: '还没到园', history: '最近记录',
     noChildren: '还没有绑定孩子，请联系学校。', latestNotice: '最新通知', more: '查看全部',
     // notices
-    noticesTitle: '学校通知', newNotice: '+ 发布通知', title: '标题', content: '内容',
+    noticesTitle: '学校通知', newNotice: '+ 发布通告', title: '标题', content: '内容',
     audience: '发给', wholeSchool: '全校', publish: '发布', published: '已发布', by: '发布人',
     // receipts
     receiptsTitle: '学费付款单据', uploadReceipt: '+ 上传付款单据', child: '孩子',
@@ -149,6 +149,14 @@ window.I18N = {
     'err:invalid email': '邮箱格式不正确',
     // message center
     messagesTitle: '消息', noMessages: '还没有消息', markAllRead: '全部已读', loadMore: '更多', unread: '未读',
+    // notices
+    newBadge: '新', scheduledFor: '定时 {t} 发布', editedOn: '{t} 已修改', retracted: '已撤回', readStats: '已读 {r} / {n}',
+    cancelSchedule: '取消发布', retract: '撤回', retractConfirm: '撤回后家长就看不到这则通告了，确定吗？', cancelScheduledConfirm: '取消这则定时通告？',
+    editNotice: '修改通告', audienceFixed: '已发布的通告不能更改发送对象。', attachments: '附件', removeFile: '删除',
+    addAttachments: '附件（图片或 PDF，最多 5 个）', publishLater: '定时发布', publishAt: '发布时间', pickTime: '请选择发布时间',
+    scheduledOk: '已设定定时发布',
+    'err:at most 5 attachments': '最多 5 个附件',
+    'err:only images or PDF files': '附件只能是图片或 PDF',
     // errors from server
     'err:wrong username or password': '用户名或密码错误',
     'err:too many attempts, try again in 15 minutes': '尝试次数太多，请 15 分钟后再试',
@@ -282,6 +290,11 @@ window.I18N = {
     'err:link expired or invalid': 'This link has expired or is invalid. Please ask again.',
     'err:invalid email': 'Invalid email address',
     messagesTitle: 'Messages', noMessages: 'No messages yet', markAllRead: 'Mark all read', loadMore: 'Load more', unread: 'Unread',
+    newBadge: 'New', scheduledFor: 'Scheduled {t}', editedOn: 'edited {t}', retracted: 'Retracted', readStats: 'Read {r} / {n}',
+    cancelSchedule: 'Cancel', retract: 'Retract', retractConfirm: 'Parents will no longer see this notice. Retract it?', cancelScheduledConfirm: 'Cancel this scheduled notice?',
+    editNotice: 'Edit notice', audienceFixed: 'The audience of a published notice cannot change.', attachments: 'Attachments', removeFile: 'Remove',
+    addAttachments: 'Attachments (images or PDF, up to 5)', publishLater: 'Publish later', publishAt: 'Publish at', pickTime: 'Choose when to publish',
+    scheduledOk: 'Scheduled',
     'err:network': 'Network error, please try again',
   },
 };
