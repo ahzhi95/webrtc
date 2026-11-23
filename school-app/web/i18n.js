@@ -147,6 +147,8 @@ window.I18N = {
     myDetails: '我的资料', emailHint: '填写邮箱后，忘记密码时可以用邮件自己重设。',
     'err:link expired or invalid': '链接已过期或无效，请重新申请',
     'err:invalid email': '邮箱格式不正确',
+    // message center
+    messagesTitle: '消息', noMessages: '还没有消息', markAllRead: '全部已读', loadMore: '更多', unread: '未读',
     // errors from server
     'err:wrong username or password': '用户名或密码错误',
     'err:too many attempts, try again in 15 minutes': '尝试次数太多，请 15 分钟后再试',
@@ -279,6 +281,7 @@ window.I18N = {
     myDetails: 'My details', emailHint: 'With an email address you can reset a forgotten password yourself.',
     'err:link expired or invalid': 'This link has expired or is invalid. Please ask again.',
     'err:invalid email': 'Invalid email address',
+    messagesTitle: 'Messages', noMessages: 'No messages yet', markAllRead: 'Mark all read', loadMore: 'Load more', unread: 'Unread',
     'err:network': 'Network error, please try again',
   },
 };

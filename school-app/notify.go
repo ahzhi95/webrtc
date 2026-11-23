@@ -21,6 +21,14 @@ type Notifier struct {
 	vapidPriv  string
 	subscriber string
 	client     *http.Client
+	loc        *time.Location // school time zone for stored timestamps
+}
+
+func (n *Notifier) nowStr() string {
+	if n.loc == nil {
+		return time.Now().Format(time.RFC3339)
+	}
+	return time.Now().In(n.loc).Format(time.RFC3339)
 }
 
 func newNotifier(db *sql.DB, subscriber string) (*Notifier, error) {
@@ -76,7 +84,7 @@ func (n *Notifier) notifyParents(studentIDs []int64, title string, body func(chi
 	firstStudent := map[int64]int64{}
 	for _, sid := range studentIDs {
 		rows, err := n.db.Query(`SELECT u.id, s.name FROM parent_students ps JOIN users u ON u.id = ps.parent_id
-			JOIN students s ON s.id = ps.student_id WHERE ps.student_id = ? AND u.notify_push = 1 AND u.disabled = 0`, sid)
+			JOIN students s ON s.id = ps.student_id WHERE ps.student_id = ? AND u.disabled = 0`, sid)
 		if err != nil {
 			logError(err)
 			return
@@ -95,13 +103,27 @@ func (n *Notifier) notifyParents(studentIDs []int64, title string, body func(chi
 		rows.Close()
 	}
 	for _, pid := range order {
-		payload, _ := json.Marshal(map[string]string{"title": title, "body": body(strings.Join(names[pid], "、")), "url": url, "tag": tag})
 		sid := firstStudent[pid]
 		if len(studentIDs) > 1 {
 			sid = 0
 		}
-		n.sendPushToUser(pid, sid, payload)
+		n.deliver(pid, sid, title, body(strings.Join(names[pid], "、")), url, tag, "")
 	}
+}
+
+// deliver puts a message in the user's message center (消息) and pushes it to their phones.
+// ref ("notice:12") lets a message be withdrawn later, e.g. when a notice is retracted.
+func (n *Notifier) deliver(userID, studentID int64, title, body, url, tag, ref string) {
+	if _, err := n.db.Exec(`INSERT INTO messages (user_id, title, body, url, ref, created_at) VALUES (?,?,?,?,?,?)`,
+		userID, title, body, url, ref, n.nowStr()); err != nil {
+		logError(err)
+	}
+	var push bool
+	if n.db.QueryRow(`SELECT notify_push FROM users WHERE id = ?`, userID).Scan(&push) != nil || !push {
+		return
+	}
+	payload, _ := json.Marshal(map[string]string{"title": title, "body": body, "url": url, "tag": tag})
+	n.sendPushToUser(userID, studentID, payload)
 }
 
 func hhmm(rfc3339 string) string {
@@ -121,7 +143,7 @@ func (n *Notifier) record(userID, studentID int64, target string, err error) {
 		detail = detail[:500]
 	}
 	_, _ = n.db.Exec(`INSERT INTO notification_log (user_id, student_id, channel, ok, detail, created_at)
-		VALUES (?,?,'push',?,?,?)`, userID, nullInt(studentID), ok, detail, time.Now().Format(time.RFC3339))
+		VALUES (?,?,'push',?,?,?)`, userID, nullInt(studentID), ok, detail, n.nowStr())
 }
 
 func (n *Notifier) sendPushToUser(userID, studentID int64, payload []byte) {

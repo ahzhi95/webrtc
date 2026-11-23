@@ -226,6 +226,19 @@ CREATE TABLE IF NOT EXISTS reset_requests (
 	handled_at TEXT NOT NULL DEFAULT ''
 );
 
+-- Message center (消息): every notification a user was sent, read or not.
+CREATE TABLE IF NOT EXISTS messages (
+	id         INTEGER PRIMARY KEY,
+	user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	title      TEXT NOT NULL,
+	body       TEXT NOT NULL,
+	url        TEXT NOT NULL DEFAULT '',
+	ref        TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL,
+	read_at    TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_messages_user ON messages(user_id, id);
+
 CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance(date);
 CREATE INDEX IF NOT EXISTS idx_receipts_status ON receipts(status);
 `

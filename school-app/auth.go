@@ -146,7 +146,7 @@ func (a *App) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleMe(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
-	resp := map[string]any{"user": u, "late_after": a.lateAfter, "today": a.now().Format("2006-01-02"), "currency": a.currency, "time_zone": a.loc.String()}
+	resp := map[string]any{"user": u, "late_after": a.lateAfter, "today": a.now().Format("2006-01-02"), "currency": a.currency, "time_zone": a.loc.String(), "unread": a.unreadMessages(u.ID)}
 	if u.Role == "parent" {
 		children, err := a.queryStudents(`WHERE s.id IN (SELECT student_id FROM parent_students WHERE parent_id = ?)`, u.ID)
 		if err != nil {
@@ -208,6 +208,8 @@ func (a *App) setPassword(userID int64, pw string) error {
 func (a *App) cleanSessions() {
 	for {
 		_, _ = a.db.Exec(`DELETE FROM sessions WHERE expires_at < ?`, time.Now().Unix())
+		_, _ = a.db.Exec(`DELETE FROM messages WHERE created_at < ?`, a.now().AddDate(-1, 0, 0).Format(time.RFC3339))
+		_, _ = a.db.Exec(`DELETE FROM password_resets WHERE expires_at < ?`, time.Now().Add(-24*time.Hour).Unix())
 		time.Sleep(time.Hour)
 	}
 }

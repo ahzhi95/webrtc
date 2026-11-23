@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -225,14 +224,10 @@ func (a *App) notifyResetRequest(userID int64) {
 		}
 	}
 	rows.Close()
-	payload, _ := json.Marshal(map[string]string{
-		"title": "密码重设请求 / Password reset request",
-		"body":  name + " 忘记密码，请协助重设。" + name + " forgot their password.",
-		"url":   "/#overview", "tag": fmt.Sprintf("reset-%d", userID),
-	})
 	for i := range admins {
 		if a.userInScope(&admins[i], userID) {
-			a.notifier.sendPushToUser(admins[i].ID, 0, payload)
+			a.notifier.deliver(admins[i].ID, 0, "密码重设请求 / Password reset request",
+				name+" 忘记密码，请协助重设。"+name+" forgot their password.", "/#overview", fmt.Sprintf("reset-%d", userID), "")
 		}
 	}
 }

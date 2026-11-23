@@ -76,6 +76,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	app.notifier.loc = loc
 	if app.mailer != nil {
 		log.Printf("邮件已设置 / Email configured (%s) — password reset links will be emailed", app.mailer.Host)
 	} else {
@@ -113,6 +114,9 @@ func (a *App) routes() http.Handler {
 	mux.Handle("GET /api/me", a.auth(a.handleMe))
 	mux.Handle("POST /api/me/password", a.auth(a.handleChangePassword))
 	mux.Handle("PUT /api/me", a.auth(a.handleUpdateMe))
+	mux.Handle("GET /api/messages", a.auth(a.handleListMessages))
+	mux.Handle("POST /api/messages/read", a.auth(a.handleReadMessages))
+	mux.Handle("GET /api/messages/unread", a.auth(a.handleUnreadCount))
 	mux.HandleFunc("POST /api/password/forgot", a.handleForgotPassword)
 	mux.HandleFunc("POST /api/password/reset", a.handleResetPasswordWithToken)
 	mux.Handle("GET /api/password/requests", a.auth(a.handleListResetRequests, "admin"))

@@ -225,7 +225,7 @@ function render() {
   const tabs = TABS[role];
   if (state.tab === 'student' && !state.studentId) state.tab = null;
   // Pages reached from inside another page rather than from the tab bar.
-  const extra = state.tab === 'student' || (state.tab === 'scan' && role !== 'parent');
+  const extra = state.tab === 'student' || state.tab === 'messages' || (state.tab === 'scan' && role !== 'parent');
   if (!extra && !tabs.some(([k]) => k === state.tab)) state.tab = (location.hash.slice(1) && tabs.some(([k]) => k === location.hash.slice(1))) ? location.hash.slice(1) : tabs[0][0];
   const main = h('main', {});
   root.append(
@@ -233,6 +233,7 @@ function render() {
       h('h1', {}, t('appName')),
       state.me.user.campus_name && h('span', { class: 'campus-tag' }, state.me.user.campus_name),
       h('span', { class: 'who' }, state.me.user.name),
+      bellButton(),
       langButton(),
       h('button', { class: 'lang-btn', onclick: () => { if (confirm(t('logoutConfirm'))) logout(); } }, t('logoutShort'))),
     main,
@@ -243,6 +244,27 @@ function render() {
   main.append(h('div', { class: 'empty' }, t('loading')));
   Promise.resolve(VIEWS[state.tab](main)).catch((e) => { main.replaceChildren(h('div', { class: 'empty' }, e.message)); });
 }
+
+// 🔔 with the number of unread messages; opens the message center.
+function bellButton() {
+  const n = state.me.unread || 0;
+  return h('button', { class: 'bell' + (state.tab === 'messages' ? ' on' : ''), 'aria-label': t('messagesTitle') + (n ? ` (${n})` : ''),
+    onclick: () => { if (state.tab !== 'messages') state.backTab = state.tab; go('messages'); } },
+  '🔔', n > 0 && h('span', { class: 'bell-n' }, n > 99 ? '99+' : n));
+}
+
+async function refreshUnread() {
+  if (!state.me || document.hidden) return;
+  try {
+    const { unread } = await api('GET', '/api/messages/unread');
+    if (unread !== state.me.unread) {
+      state.me.unread = unread;
+      document.querySelector('.bell')?.replaceWith(bellButton());
+    }
+  } catch (e) { /* offline: try again later */ }
+}
+setInterval(refreshUnread, 60000);
+document.addEventListener('visibilitychange', refreshUnread);
 
 function go(tab) { state.tab = tab; history.replaceState(null, '', '#' + tab); render(); window.scrollTo(0, 0); }
 
@@ -357,6 +379,47 @@ async function resetRequestsCard(rerender) {
           rerender();
         } }, t('resetPw')))))));
 }
+
+// ============ message center (消息) ============
+VIEWS.messages = async (main) => {
+  const role = state.me.user.role;
+  let list = [];
+  let more = true;
+  const ul = h('ul', { class: 'list' });
+  const moreBtn = h('button', { class: 'btn block', onclick: () => load() }, t('loadMore'));
+  const open = async (m) => {
+    if (!m.read) {
+      const r = await api('POST', '/api/messages/read', { id: m.id }).catch(() => null);
+      if (r) state.me.unread = r.unread;
+    }
+    const tab = (m.url || '').split('#')[1];
+    if (tab && (TABS[role].some(([k]) => k === tab) || tab === 'overview')) go(tab); else render();
+  };
+  const draw = () => {
+    ul.replaceChildren(...list.map((m) => h('li', { class: 'msg' + (m.read ? '' : ' unread') },
+      h('button', { class: 'linkish', onclick: () => open(m) },
+        h('div', { class: 'row' }, !m.read && h('span', { class: 'dot', 'aria-label': t('unread') }), h('b', { class: 'grow' }, m.title), h('span', { class: 'muted small' }, dateTime(m.created_at))),
+        h('div', { class: 'pre small' }, m.body)))));
+    moreBtn.hidden = !more;
+  };
+  const load = async () => {
+    const before = list.length ? list[list.length - 1].id : 0;
+    const r = await api('GET', '/api/messages' + (before ? '?before=' + before : ''));
+    list = list.concat(r.messages);
+    more = r.messages.length === 50;
+    state.me.unread = r.unread;
+    draw();
+  };
+  await load();
+  const back = h('button', { class: 'btn sm', onclick: () => go(state.backTab || TABS[role][0][0]) }, '‹ ', t('back'));
+  const readAll = h('button', { class: 'btn sm', onclick: async () => {
+    if (await run(async () => { const r = await api('POST', '/api/messages/read', { all: true }); state.me.unread = r.unread; })) { list.forEach((m) => { m.read = true; }); draw(); document.querySelector('.bell')?.replaceWith(bellButton()); }
+  } }, t('markAllRead'));
+  main.replaceChildren(h('div', { class: 'stack' },
+    h('div', { class: 'row' }, back, h('h2', { class: 'grow', style: 'margin:0' }, t('messagesTitle')), list.some((m) => !m.read) && readAll),
+    list.length ? h('section', { class: 'card' }, ul) : h('div', { class: 'card empty' }, t('noMessages')),
+    moreBtn));
+};
 
 // ============ parent: home ============
 function todayBox(rec) {
