@@ -150,6 +150,8 @@ func (a *App) routes() http.Handler {
 	mux.Handle("GET /api/fee-items/{id}/students", a.auth(a.handleFeeItemStudents, "admin"))
 	mux.Handle("PUT /api/student-fees/{id}", a.auth(a.handleUpdateStudentFee, "admin"))
 	mux.Handle("GET /api/fees", a.auth(a.handleListFees, "admin", "parent"))
+	mux.Handle("GET /api/official-receipts", a.auth(a.handleListOfficial, "admin", "parent"))
+	mux.Handle("GET /api/official-receipts/{id}", a.auth(a.handleGetOfficial, "admin", "parent"))
 
 	// Notifications
 	mux.Handle("GET /api/push/key", a.auth(a.handlePushKey))

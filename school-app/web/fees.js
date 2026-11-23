@@ -64,7 +64,7 @@ async function parentFees(main) {
       done.length > 0 && h('details', { style: 'margin-top:10px' }, h('summary', { class: 'small muted' }, t('paidHistory', { n: done.length })),
         h('ul', { class: 'list' }, done.map((f) => h('li', { class: 'row' },
           h('span', { class: 'grow' }, f.name, h('div', { class: 'muted small' }, f.paid_at ? t('paidOn', { d: f.paid_at.slice(0, 10) }) : f.note)),
-          h('span', {}, money(f.amount_cents)), feeBadge(f)))))));
+          h('span', {}, money(f.amount_cents)), f.receipt_id ? receiptButton(f.receipt_id, t('receiptShort')) : feeBadge(f)))))));
   }
 
   // Payments not on the list (e.g. agreed with the school directly).
@@ -83,6 +83,14 @@ async function parentFees(main) {
       } }, field(t('child'), child), field(t('description'), desc), field(t('amount') + ` (${state.currency})`, amount), field(t('file'), file), btn)));
   }
 
+  const official = children.length ? await api('GET', '/api/official-receipts') : [];
+  if (official.length) {
+    parts.push(h('section', { class: 'card' }, h('h3', {}, '📄 ', t('myReceipts')),
+      h('ul', { class: 'list' }, official.map((o) => h('li', { class: 'row' },
+        h('span', { class: 'grow' }, h('b', {}, o.number), o.voided_at ? h('span', { class: 'badge bad', style: 'margin-left:6px' }, t('void')) : null,
+          h('div', { class: 'muted small' }, o.student_name, ' · ', o.issued_at.slice(0, 10), ' · ', money(o.total_cents))),
+        receiptButton(o.id, t('open')))))));
+  }
   parts.push(h('h3', { style: 'margin-top:8px' }, t('uploadHistory')));
   parts.push(receipts.length ? receipts.map((r) => receiptCard(r, rerender)) : h('div', { class: 'card' }, emptyRow()));
   main.replaceChildren(h('div', { class: 'stack' }, parts));
@@ -102,6 +110,7 @@ function receiptCard(r, rerender) {
     admin && r.reviewed_by && h('div', { class: 'muted small' }, t('reviewedBy'), ': ', r.reviewed_by, ' · ', dateTime(r.reviewed_at)),
     h('div', { class: 'row', style: 'margin-top:10px' },
       h('a', { class: 'btn sm', href: `/api/receipts/${r.id}/file`, target: '_blank', rel: 'noopener' }, t('viewFile')),
+      receiptButton(r.official_id, r.official_no),
       h('span', { class: 'spacer' }),
       admin && r.status !== 'approved' && h('button', { class: 'btn sm ok', onclick: async () => {
         if (await run(() => api('POST', `/api/receipts/${r.id}/review`, { status: 'approved', note: '' }), t('saved'))) rerender();
@@ -230,6 +239,7 @@ async function feeItemStudents(item, done) {
           h('span', { class: 'grow' }, f.student_name, h('div', { class: 'muted small' }, f.class_name, f.note ? ' · ' + f.note : '')),
           h('b', {}, money(f.amount_cents)), feeBadge(f)),
         f.status !== 'pending' && h('div', { class: 'row', style: 'margin-top:6px;justify-content:flex-end' },
+          receiptButton(f.receipt_id, f.receipt_no),
           f.status !== 'paid' && h('button', { type: 'button', class: 'btn sm ok', onclick: () => act({ status: 'paid', note: t('cashNote') }, t('saved')) }, t('markCash')),
           f.status === 'unpaid' && h('button', { type: 'button', class: 'btn sm', onclick: () => {
             const reason = prompt(t('waiveReason'));
@@ -249,3 +259,151 @@ async function feeItemStudents(item, done) {
   new MutationObserver((_, obs) => { if (!document.body.contains(back)) { obs.disconnect(); if (changed) done(); } }).observe(document.body, { childList: true });
   return close;
 }
+
+// ---------- official receipts (正式收据) ----------
+// Drawn on the device (which has Chinese fonts) from the server's record, then saved as PDF or image.
+
+const RECEIPT_FONT = '"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans SC","Noto Sans CJK SC","WenQuanYi Zen Hei",sans-serif';
+const METHOD_LABEL = { transfer: ['网上转账 / 银行转账', 'Online / bank transfer'], cash: ['现金', 'Cash'], other: ['其他', 'Other'] };
+
+function drawReceipt(r) {
+  const W = 1240, P = 80;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = 3200;
+  const g = c.getContext('2d');
+  g.fillStyle = '#fff'; g.fillRect(0, 0, W, c.height);
+  g.textBaseline = 'top';
+  let y = P;
+  const font = (px, bold) => { g.font = `${bold ? '700 ' : ''}${px}px ${RECEIPT_FONT}`; };
+  // Wrapped text; returns the height used.
+  const text = (s, x, maxW, px, opts = {}) => {
+    font(px, opts.bold);
+    g.fillStyle = opts.color || '#111';
+    g.textAlign = opts.align || 'left';
+    const lines = [];
+    let line = '';
+    for (const ch of String(s)) {
+      if (g.measureText(line + ch).width > maxW && line) { lines.push(line); line = ''; }
+      line += ch;
+    }
+    lines.push(line);
+    lines.forEach((l, i) => g.fillText(l, x, y + i * px * 1.35));
+    return lines.length * px * 1.35;
+  };
+  const rule = (w = 2, color = '#222') => { g.fillStyle = color; g.fillRect(P, y, W - 2 * P, w); };
+  const s = r.school;
+
+  y += text(s.name || '—', W / 2, W - 2 * P, 50, { bold: true, align: 'center' }) + 6;
+  if (s.reg_no) y += text(s.reg_no, W / 2, W - 2 * P, 24, { align: 'center', color: '#444' });
+  if (s.address) y += text(s.address, W / 2, W - 2 * P, 24, { align: 'center', color: '#444' });
+  const contact = [s.phone && 'Tel: ' + s.phone, s.email].filter(Boolean).join('   ');
+  if (contact) y += text(contact, W / 2, W - 2 * P, 24, { align: 'center', color: '#444' });
+  y += 24; rule(3); y += 36;
+  y += text('正式收据  OFFICIAL RECEIPT', W / 2, W - 2 * P, 42, { bold: true, align: 'center' }) + 30;
+
+  const kv = (k, v) => {
+    const h1 = text(k, P, 330, 26, { color: '#555' });
+    const h2 = text(v, P + 340, W - 2 * P - 340, 26, { bold: true });
+    y += Math.max(h1, h2) + 10;
+  };
+  kv('收据编号 Receipt No.', r.number);
+  kv('日期 Date', r.issued_at.slice(0, 10));
+  kv('收款自 Received from', r.payer_name || `${r.student_name} 的家长 / Parent`);
+  kv('学生 Student', `${r.student_name}  (${[r.class_name, r.student_no].filter(Boolean).join(' · ')})`);
+  y += 20;
+
+  // Items table
+  g.fillStyle = '#eef3f1'; g.fillRect(P, y, W - 2 * P, 56);
+  const amtX = W - P - 20;
+  const hy = y; y += 14;
+  text('项目 Description', P + 20, 700, 26, { bold: true });
+  text(`金额 Amount (${state.currency})`, amtX, 400, 26, { bold: true, align: 'right' });
+  y = hy + 56 + 16;
+  for (const it of r.items) {
+    const hgt = text(it.description, P + 20, W - 2 * P - 360, 28);
+    text(centsToStr(it.amount_cents), amtX, 300, 28, { align: 'right' });
+    y += hgt + 14;
+    rule(1, '#ccc'); y += 14;
+  }
+  y += 6;
+  text('合计 Total', P + 20, 600, 32, { bold: true });
+  text(`${state.currency} ${centsToStr(r.total_cents)}`, amtX, 500, 32, { bold: true, align: 'right' });
+  y += 52; rule(3); y += 30;
+  const m = METHOD_LABEL[r.method] || [r.method, r.method];
+  kv('付款方式 Payment', `${m[0]}  ${m[1]}`);
+  kv('经办人 Issued by', r.issued_by || '—');
+  y += 30;
+  y += text('此收据由系统生成，无需签名。This is a computer-generated receipt; no signature is required.', P, W - 2 * P, 22, { color: '#666' });
+  y += text(`${t('issuedAtLabel')} ${dateTime(r.issued_at)}`, P, W - 2 * P, 22, { color: '#666' });
+  y += P;
+
+  const out = document.createElement('canvas');
+  out.width = W; out.height = Math.ceil(y);
+  const og = out.getContext('2d');
+  og.drawImage(c, 0, 0);
+  if (r.voided_at) { // clearly unusable once voided
+    og.save();
+    og.translate(W / 2, out.height / 2);
+    og.rotate(-Math.PI / 7);
+    og.font = `700 150px ${RECEIPT_FONT}`;
+    og.fillStyle = 'rgba(200,0,0,.28)';
+    og.textAlign = 'center'; og.textBaseline = 'middle';
+    og.fillText('已作废 VOID', 0, 0);
+    og.restore();
+    og.font = `700 26px ${RECEIPT_FONT}`;
+    og.fillStyle = '#c00'; og.textAlign = 'left'; og.textBaseline = 'top';
+    og.fillText(`已作废 VOID ${r.voided_at.slice(0, 10)} · ${r.void_reason}`, P, 28);
+  }
+  return out;
+}
+
+function centsToStr(c) { return (c / 100).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+
+let jsPDFLoading;
+function loadJsPDF() {
+  if (window.jspdf) return Promise.resolve();
+  jsPDFLoading = jsPDFLoading || new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'vendor/jspdf.umd.min.js';
+    s.onload = resolve; s.onerror = () => { jsPDFLoading = null; reject(new Error(t('err:network'))); };
+    document.head.append(s);
+  });
+  return jsPDFLoading;
+}
+
+async function receiptPDF(canvas) {
+  await loadJsPDF();
+  const wMM = 210, hMM = wMM * canvas.height / canvas.width;
+  const doc = new window.jspdf.jsPDF({ unit: 'mm', format: [wMM, hMM], compress: true });
+  doc.addImage(canvas.toDataURL('image/jpeg', 0.92), 'JPEG', 0, 0, wMM, hMM);
+  return doc.output('blob');
+}
+
+function saveBlob(blob, name) {
+  const a = h('a', { href: URL.createObjectURL(blob), download: name });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+}
+
+async function openOfficialReceipt(id) {
+  let r;
+  try { r = await api('GET', `/api/official-receipts/${id}`); } catch (e) { toast(e.message); return; }
+  const canvas = drawReceipt(r);
+  const img = h('img', { class: 'receipt-preview', src: canvas.toDataURL('image/png'), alt: r.number });
+  const base = 'receipt-' + r.number;
+  const pdfFile = async () => new File([await receiptPDF(canvas)], base + '.pdf', { type: 'application/pdf' });
+  const btns = h('div', { class: 'row' },
+    h('button', { type: 'button', class: 'btn primary grow', onclick: () => run(async () => saveBlob(await pdfFile(), base + '.pdf')) }, '⬇ ', t('downloadPdf')),
+    h('button', { type: 'button', class: 'btn grow', onclick: () => canvas.toBlob((b) => saveBlob(b, base + '.png'), 'image/png') }, t('downloadImage')),
+    navigator.canShare && h('button', { type: 'button', class: 'btn grow', onclick: () => run(async () => {
+      const f = await pdfFile();
+      if (navigator.canShare({ files: [f] })) await navigator.share({ files: [f], title: r.number });
+      else saveBlob(f, base + '.pdf');
+    }) }, t('share')));
+  openDialog(`${t('officialReceipt')} ${r.number}`, [
+    r.voided_at && h('div', { class: 'alert' }, t('receiptVoided', { reason: r.void_reason })),
+    img, btns,
+  ], null);
+}
+
+const receiptButton = (id, number) => id ? h('button', { type: 'button', class: 'btn sm', onclick: () => openOfficialReceipt(id) }, '📄 ', number || t('officialReceipt')) : null;

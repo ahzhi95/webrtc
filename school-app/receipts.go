@@ -47,6 +47,8 @@ type Receipt struct {
 	ReviewedAt  string       `json:"reviewed_at"`
 	CreatedAt   string       `json:"created_at"`
 	Fees        []ReceiptFee `json:"fees"`
+	OfficialID  string       `json:"official_id"`
+	OfficialNo  string       `json:"official_no"`
 }
 
 func parseAmount(s string) (int64, error) {
@@ -236,6 +238,13 @@ func (a *App) handleListReceipts(w http.ResponseWriter, r *http.Request) {
 		list = append(list, x)
 	}
 	rows.Close()
+	ids := make([]int64, len(list))
+	for i, x := range list {
+		ids[i] = x.ID
+	}
+	for up, v := range a.receiptIDsForUploads(ids) {
+		list[index[up]].OfficialID, list[index[up]].OfficialNo = v[0], v[1]
+	}
 	if len(list) > 0 {
 		rows, err := a.db.Query(`SELECT rf.receipt_id, sf.id, f.name, sf.amount_cents FROM receipt_fees rf
 			JOIN student_fees sf ON sf.id = rf.student_fee_id JOIN fee_items f ON f.id = sf.fee_item_id
@@ -335,12 +344,23 @@ func (a *App) handleReviewReceipt(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	// Approving issues the official receipt; undoing an approval voids it.
+	if req.Status == "approved" {
+		err = a.issueForUpload(tx, id, u.ID)
+	} else {
+		err = a.voidReceipts(tx, u.ID, "付款凭证已改为"+map[string]string{"rejected": "退回", "pending": "待确认"}[req.Status]+" / payment proof "+req.Status,
+			"r.upload_id = ?", id)
+	}
+	if err != nil {
+		serverError(w, err)
+		return
+	}
 	if err := tx.Commit(); err != nil {
 		serverError(w, err)
 		return
 	}
 	if req.Status != "pending" {
-		title, body := "缴费已确认 / Payment confirmed", "学校已确认收到："+desc
+		title, body := "缴费已确认 / Payment confirmed", "学校已确认收到："+desc+"\n可以在 App 下载收据。Your receipt is ready to download."
 		if req.Status == "rejected" {
 			title, body = "缴费凭证被退回 / Receipt returned", desc+"\n原因 Reason: "+req.Note
 		}

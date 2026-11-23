@@ -308,5 +308,5 @@ VIEWS.student = async (main) => {
       h('h3', {}, t('fees')),
       fees.length ? h('ul', { class: 'list' }, fees.map((f) => h('li', { class: 'row' },
         h('div', { class: 'grow' }, f.name, h('div', { class: 'muted small' }, f.due_date && t('dueOn', { d: f.due_date }))),
-        h('b', {}, money(f.amount_cents)), feeBadge(f)))) : emptyRow())));
+        h('b', {}, money(f.amount_cents)), f.receipt_id ? receiptButton(f.receipt_id, f.receipt_no) : feeBadge(f)))) : emptyRow())));
 };

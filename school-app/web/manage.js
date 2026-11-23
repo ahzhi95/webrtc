@@ -9,7 +9,7 @@ const manageFilter = { classId: '', role: '' };
 VIEWS.manage = async (main) => {
   const rerender = () => VIEWS.manage(main);
   const top = !state.me.user.campus_id;
-  const tabs = ['students', 'classes', 'users', 'fees', 'cards', top && 'campuses', 'notify'].filter(Boolean);
+  const tabs = ['students', 'classes', 'users', 'fees', 'cards', 'campuses', 'notify'];
   if (!tabs.includes(manageTab)) manageTab = 'students';
   const body = [];
   await MANAGE[manageTab](body, rerender);
@@ -174,20 +174,36 @@ MANAGE.cards = async (body, rerender) => {
 
 // ---------- campuses (top-level admin) ----------
 MANAGE.campuses = async (body, rerender) => {
+  const top = allCampuses();
   const campuses = await api('GET', '/api/campuses');
   const edit = (c) => {
-    const name = h('input', { type: 'text', required: true, value: c ? c.name : '' });
-    openDialog(c ? t('editCampus') : t('newCampus'), [field(t('campusName'), name)], () => run(async () => {
-      await api(c ? 'PUT' : 'POST', c ? `/api/campuses/${c.id}` : '/api/campuses', { name: name.value });
+    const v = (k) => (c ? c[k] : '');
+    const name = h('input', { type: 'text', required: true, value: v('name'), readonly: !top });
+    const prefix = h('input', { type: 'text', maxlength: 8, value: v('receipt_prefix'), placeholder: 'TTM', style: 'text-transform:uppercase' });
+    const reg = h('input', { type: 'text', value: v('reg_no'), placeholder: t('regNoPh') });
+    const addr = h('textarea', { style: 'min-height:70px' }, v('address'));
+    const phone = h('input', { type: 'tel', value: v('phone') });
+    const email = h('input', { type: 'email', value: v('email') });
+    openDialog(c ? t('editCampus') : t('newCampus'), [
+      field(t('campusName'), name),
+      h('div', { class: 'row' }, h('div', { class: 'grow' }, field(t('receiptPrefix'), prefix)), h('div', { class: 'grow' }, field(t('regNo'), reg))),
+      field(t('address'), addr),
+      h('div', { class: 'row' }, h('div', { class: 'grow' }, field(t('phone'), phone)), h('div', { class: 'grow' }, field(t('email'), email))),
+      h('p', { class: 'small muted' }, t('campusReceiptHint')),
+    ], () => run(async () => {
+      await api(c ? 'PUT' : 'POST', c ? `/api/campuses/${c.id}` : '/api/campuses',
+        { name: name.value, receipt_prefix: prefix.value, reg_no: reg.value, address: addr.value, phone: phone.value, email: email.value });
       rerender();
     }, t('saved')));
   };
-  body.push(h('div', { class: 'row', style: 'justify-content:flex-end' }, h('button', { class: 'btn primary', onclick: () => edit(null) }, t('newCampus'))));
-  body.push(h('p', { class: 'small muted', style: 'margin:0' }, t('campusHint')));
+  if (top) body.push(h('div', { class: 'row', style: 'justify-content:flex-end' }, h('button', { class: 'btn primary', onclick: () => edit(null) }, t('newCampus'))));
+  body.push(h('p', { class: 'small muted', style: 'margin:0' }, top ? t('campusHint') : t('campusHintOwn')));
   body.push(h('section', { class: 'card' }, campuses.length ? h('ul', { class: 'list' }, campuses.map((c) => h('li', { class: 'row' },
-    h('div', { class: 'grow' }, h('b', {}, c.name), h('div', { class: 'muted small' }, t('nClasses', { n: c.classes }), ' · ', t('nStudents', { n: c.students }))),
+    h('div', { class: 'grow' }, h('b', {}, c.name), ' ', h('span', { class: 'badge' }, c.receipt_prefix),
+      h('div', { class: 'muted small' }, t('nClasses', { n: c.classes }), ' · ', t('nStudents', { n: c.students })),
+      c.address && h('div', { class: 'muted small' }, c.address)),
     h('button', { class: 'btn sm', onclick: () => edit(c) }, t('edit')),
-    h('button', { class: 'btn sm bad', onclick: async () => { if (confirm(t('confirmDelete')) && await run(() => api('DELETE', `/api/campuses/${c.id}`), t('deleted'))) rerender(); } }, t('delete'))))) : emptyRow()));
+    top && h('button', { class: 'btn sm bad', onclick: async () => { if (confirm(t('confirmDelete')) && await run(() => api('DELETE', `/api/campuses/${c.id}`), t('deleted'))) rerender(); } }, t('delete'))))) : emptyRow()));
 };
 
 // ---------- push log ----------

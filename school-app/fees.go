@@ -259,10 +259,16 @@ type StudentFee struct {
 	Status      string `json:"status"`
 	PaidAt      string `json:"paid_at"`
 	Note        string `json:"note"`
+	ReceiptID   int64  `json:"receipt_id"` // official receipt, when paid
+	ReceiptNo   string `json:"receipt_no"`
 }
 
 const studentFeeSelect = `SELECT sf.id, f.id, f.name, f.category, f.due_date, s.id, s.name, COALESCE(c.name,''),
-	sf.amount_cents, sf.status, sf.paid_at, sf.note
+	sf.amount_cents, sf.status, sf.paid_at, sf.note,
+	COALESCE((SELECT r.id FROM official_receipt_items ri JOIN official_receipts r ON r.id = ri.official_receipt_id
+		WHERE ri.student_fee_id = sf.id AND r.voided_at = '' ORDER BY r.id DESC LIMIT 1), 0),
+	COALESCE((SELECT r.number FROM official_receipt_items ri JOIN official_receipts r ON r.id = ri.official_receipt_id
+		WHERE ri.student_fee_id = sf.id AND r.voided_at = '' ORDER BY r.id DESC LIMIT 1), '')
 	FROM student_fees sf JOIN fee_items f ON f.id = sf.fee_item_id JOIN students s ON s.id = sf.student_id
 	LEFT JOIN classes c ON c.id = s.class_id `
 
@@ -276,7 +282,7 @@ func (a *App) queryStudentFees(where string, args ...any) ([]StudentFee, error) 
 	for rows.Next() {
 		var x StudentFee
 		if err := rows.Scan(&x.ID, &x.FeeItemID, &x.Name, &x.Category, &x.DueDate, &x.StudentID, &x.StudentName, &x.ClassName,
-			&x.AmountCents, &x.Status, &x.PaidAt, &x.Note); err != nil {
+			&x.AmountCents, &x.Status, &x.PaidAt, &x.Note, &x.ReceiptID, &x.ReceiptNo); err != nil {
 			return nil, err
 		}
 		list = append(list, x)
@@ -357,12 +363,40 @@ func (a *App) handleUpdateStudentFee(w http.ResponseWriter, r *http.Request) {
 			httpError(w, http.StatusBadRequest, "invalid status")
 			return
 		}
+		var old string
+		_ = a.db.QueryRow(`SELECT status FROM student_fees WHERE id = ?`, id).Scan(&old)
 		paidAt := ""
 		if req.Status == "paid" {
 			paidAt = a.nowStr()
 		}
-		if _, err := a.db.Exec(`UPDATE student_fees SET status = ?, paid_at = ?, note = ? WHERE id = ?`,
+		tx, err := a.db.Begin()
+		if err != nil {
+			serverError(w, err)
+			return
+		}
+		defer tx.Rollback()
+		if _, err := tx.Exec(`UPDATE student_fees SET status = ?, paid_at = ?, note = ? WHERE id = ?`,
 			req.Status, paidAt, strings.TrimSpace(req.Note), id); err != nil {
+			serverError(w, err)
+			return
+		}
+		switch {
+		case req.Status == "paid" && old != "paid":
+			// Paid at the counter: issue a receipt for this fee.
+			var name string
+			var cents, payer int64
+			_ = tx.QueryRow(`SELECT f.name, sf.amount_cents FROM student_fees sf JOIN fee_items f ON f.id = sf.fee_item_id WHERE sf.id = ?`, id).Scan(&name, &cents)
+			_ = tx.QueryRow(`SELECT parent_id FROM parent_students WHERE student_id = ? ORDER BY parent_id LIMIT 1`, studentID).Scan(&payer)
+			_, err = a.issueReceipt(tx, studentID, payer, 0, "cash", u.ID, []receiptLine{{studentFeeID: id, desc: name, cents: cents}})
+		case req.Status != "paid" && old == "paid":
+			err = a.voidReceipts(tx, u.ID, "付款已撤销 / payment undone",
+				"r.id IN (SELECT official_receipt_id FROM official_receipt_items WHERE student_fee_id = ?)", id)
+		}
+		if err != nil {
+			serverError(w, err)
+			return
+		}
+		if err := tx.Commit(); err != nil {
 			serverError(w, err)
 			return
 		}

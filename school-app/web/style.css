@@ -92,6 +92,7 @@ h3 { font-size: 16px; margin: 0 0 8px; }
 .small { font-size: 13px; }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .row > .grow { flex: 1; min-width: 140px; }
+.dialog .row > .grow { min-width: 0; flex-basis: 0; }
 .spacer { flex: 1; }
 .stack > * + * { margin-top: 12px; }
 
@@ -130,7 +131,7 @@ h3 { font-size: 16px; margin: 0 0 8px; }
 /* ---------- forms ---------- */
 label.f { display: block; font-size: 14px; color: var(--muted); margin-bottom: 10px; }
 label.f > input, label.f > select, label.f > textarea { margin-top: 4px; }
-input[type=text], input[type=password], input[type=number], input[type=date], input[type=tel], input[type=search], select, textarea {
+input[type=text], input[type=password], input[type=number], input[type=date], input[type=time], input[type=tel], input[type=email], input[type=search], select, textarea {
   width: 100%; padding: 10px 12px; border-radius: 10px;
   border: 1px solid var(--border); background: var(--surface); min-height: 44px;
 }
@@ -236,6 +237,8 @@ li.is-disabled { opacity: .6; }
   padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 12px; box-shadow: 0 -4px 24px rgba(0,0,0,.2); }
 @media (min-width: 600px) { .dialog-back { align-items: center; } .dialog { border-radius: 16px; } }
 .dialog-body { display: flex; flex-direction: column; }
+
+.receipt-preview { width: 100%; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 12px; background: #fff; }
 
 /* ---------- QR cards (print) ---------- */
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }

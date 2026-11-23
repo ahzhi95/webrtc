@@ -113,6 +113,13 @@ window.I18N = {
     'err:cannot limit your own account to one campus': '不能把自己的账号限制在一个校区',
     'err:invalid date': '日期不正确',
     'err:invalid category': '请选择类别',
+    // official receipts
+    officialReceipt: '正式收据', receiptShort: '收据', myReceipts: '我的收据', open: '打开', void: '已作废',
+    downloadPdf: '下载 PDF', downloadImage: '下载图片', share: '分享', issuedAtLabel: '开立时间',
+    receiptVoided: '这张收据已作废：{reason}', receiptPrefix: '收据编号前缀', regNo: '注册编号', regNoPh: '例如：KPM / SSM 注册号',
+    address: '地址', campusReceiptHint: '这些资料会印在正式收据上。收据编号格式：前缀-年份-流水号，例如 TTM-2026-0001。',
+    campusHintOwn: '你可以修改本校区的地址、电话等资料（会印在收据上）。',
+    'err:receipt prefix: 1-8 letters or numbers': '收据前缀只能是 1-8 个英文字母或数字',
     // errors from server
     'err:wrong username or password': '用户名或密码错误',
     'err:too many attempts, try again in 15 minutes': '尝试次数太多，请 15 分钟后再试',
@@ -218,6 +225,11 @@ window.I18N = {
     emergencyName: 'Emergency contact', emergencyPhone: 'Emergency phone', unlink: 'Unlink', unlinkConfirm: 'Unlink {p} from {s}?',
     editClass: 'Edit class', editUser: 'Edit account', email: 'Email', allRoles: 'All roles', disabled: 'Disabled', children: 'Children',
     disableConfirm: 'Disable {n}? They are signed out at once and cannot log in.', enable: 'Enable', disable: 'Disable',
+    officialReceipt: 'Official receipt', receiptShort: 'Receipt', myReceipts: 'My receipts', open: 'Open', void: 'Void',
+    downloadPdf: 'Download PDF', downloadImage: 'Download image', share: 'Share', issuedAtLabel: 'Issued',
+    receiptVoided: 'This receipt has been voided: {reason}', receiptPrefix: 'Receipt prefix', regNo: 'Registration no.', regNoPh: 'e.g. KPM / SSM no.',
+    address: 'Address', campusReceiptHint: 'Printed on official receipts. Receipt numbers look like PREFIX-YEAR-NUMBER, e.g. TTM-2026-0001.',
+    campusHintOwn: 'You can update your campus address, phone and other details (printed on receipts).',
     'err:network': 'Network error, please try again',
   },
 };

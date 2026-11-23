@@ -99,14 +99,14 @@ func (a *App) userInScope(u *User, targetID int64) bool {
 // ================= Campuses =================
 
 type Campus struct {
-	ID       int64  `json:"id"`
-	Name     string `json:"name"`
-	Classes  int    `json:"classes"`
-	Students int    `json:"students"`
+	ID       int64 `json:"id"`
+	Classes  int   `json:"classes"`
+	Students int   `json:"students"`
+	CampusInfo
 }
 
 func (a *App) handleListCampuses(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query(`SELECT cp.id, cp.name,
+	rows, err := a.db.Query(`SELECT cp.id, cp.name, cp.reg_no, cp.address, cp.phone, cp.email, cp.receipt_prefix,
 		(SELECT COUNT(*) FROM classes c WHERE c.campus_id = cp.id),
 		(SELECT COUNT(*) FROM students s JOIN classes c ON c.id = s.class_id WHERE c.campus_id = cp.id)
 		FROM campuses cp WHERE (? = 0 OR cp.id = ?) ORDER BY cp.name`, scope(currentUser(r)), scope(currentUser(r)))
@@ -118,7 +118,7 @@ func (a *App) handleListCampuses(w http.ResponseWriter, r *http.Request) {
 	list := []Campus{}
 	for rows.Next() {
 		var c Campus
-		if err := rows.Scan(&c.ID, &c.Name, &c.Classes, &c.Students); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.RegNo, &c.Address, &c.Phone, &c.Email, &c.ReceiptPrefix, &c.Classes, &c.Students); err != nil {
 			serverError(w, err)
 			return
 		}
@@ -128,24 +128,42 @@ func (a *App) handleListCampuses(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) handleSaveCampus(w http.ResponseWriter, r *http.Request) {
-	if !isTopAdmin(currentUser(r)) {
+	u := currentUser(r)
+	id, editing := pathID(r, "id")
+	// The top-level admin adds and renames campuses; a campus admin may update their own campus's details.
+	if !isTopAdmin(u) && !(editing && scope(u) == id) {
 		httpError(w, http.StatusForbidden, "permission denied")
 		return
 	}
-	var req struct{ Name string }
+	var req CampusInfo
 	if !readJSON(w, r, &req) {
 		return
 	}
-	req.Name = strings.TrimSpace(req.Name)
+	for _, f := range []*string{&req.Name, &req.RegNo, &req.Address, &req.Phone, &req.Email, &req.ReceiptPrefix} {
+		*f = strings.TrimSpace(*f)
+	}
+	req.ReceiptPrefix = strings.ToUpper(req.ReceiptPrefix)
 	if req.Name == "" {
 		httpError(w, http.StatusBadRequest, "name is required")
 		return
 	}
+	if req.ReceiptPrefix == "" {
+		req.ReceiptPrefix = defaultPrefix(req.Name)
+	}
+	if !receiptPrefixRe.MatchString(req.ReceiptPrefix) {
+		httpError(w, http.StatusBadRequest, "receipt prefix: 1-8 letters or numbers")
+		return
+	}
 	var err error
-	if id, ok := pathID(r, "id"); ok {
-		_, err = a.db.Exec(`UPDATE campuses SET name = ? WHERE id = ?`, req.Name, id)
+	if editing {
+		if !isTopAdmin(u) { // campus admins keep the name the owner gave
+			_ = a.db.QueryRow(`SELECT name FROM campuses WHERE id = ?`, id).Scan(&req.Name)
+		}
+		_, err = a.db.Exec(`UPDATE campuses SET name = ?, reg_no = ?, address = ?, phone = ?, email = ?, receipt_prefix = ? WHERE id = ?`,
+			req.Name, req.RegNo, req.Address, req.Phone, req.Email, req.ReceiptPrefix, id)
 	} else {
-		_, err = a.db.Exec(`INSERT INTO campuses (name) VALUES (?)`, req.Name)
+		_, err = a.db.Exec(`INSERT INTO campuses (name, reg_no, address, phone, email, receipt_prefix) VALUES (?,?,?,?,?,?)`,
+			req.Name, req.RegNo, req.Address, req.Phone, req.Email, req.ReceiptPrefix)
 	}
 	if isUnique(err) {
 		httpError(w, http.StatusConflict, "already exists")
@@ -157,6 +175,8 @@ func (a *App) handleSaveCampus(w http.ResponseWriter, r *http.Request) {
 	}
 	okJSON(w)
 }
+
+var receiptPrefixRe = regexp.MustCompile(`^[A-Z0-9]{1,8}$`)
 
 func (a *App) handleDeleteCampus(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(r, "id")

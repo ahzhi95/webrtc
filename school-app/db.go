@@ -173,6 +173,37 @@ CREATE TABLE IF NOT EXISTS receipt_fees (
 	PRIMARY KEY (receipt_id, student_fee_id)
 );
 
+CREATE TABLE IF NOT EXISTS receipt_counters (
+	campus_id INTEGER NOT NULL,
+	year      INTEGER NOT NULL,
+	last      INTEGER NOT NULL,
+	PRIMARY KEY (campus_id, year)
+);
+
+CREATE TABLE IF NOT EXISTS official_receipts (
+	id          INTEGER PRIMARY KEY,
+	number      TEXT NOT NULL UNIQUE,
+	campus_id   INTEGER REFERENCES campuses(id) ON DELETE SET NULL,
+	student_id  INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+	payer_id    INTEGER REFERENCES users(id) ON DELETE SET NULL,
+	upload_id   INTEGER REFERENCES receipts(id) ON DELETE SET NULL,
+	method      TEXT NOT NULL,
+	total_cents INTEGER NOT NULL,
+	issued_at   TEXT NOT NULL,
+	issued_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+	voided_at   TEXT NOT NULL DEFAULT '',
+	void_reason TEXT NOT NULL DEFAULT '',
+	voided_by   INTEGER REFERENCES users(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_official_student ON official_receipts(student_id);
+
+CREATE TABLE IF NOT EXISTS official_receipt_items (
+	official_receipt_id INTEGER NOT NULL REFERENCES official_receipts(id) ON DELETE CASCADE,
+	student_fee_id      INTEGER REFERENCES student_fees(id) ON DELETE SET NULL,
+	description         TEXT NOT NULL,
+	amount_cents        INTEGER NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance(date);
 CREATE INDEX IF NOT EXISTS idx_receipts_status ON receipts(status);
 `
@@ -204,6 +235,11 @@ func openDB(path string) (*sql.DB, error) {
 		`ALTER TABLE students ADD COLUMN emergency_name TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE students ADD COLUMN emergency_phone TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE students ADD COLUMN notes TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE campuses ADD COLUMN reg_no TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE campuses ADD COLUMN address TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE campuses ADD COLUMN phone TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE campuses ADD COLUMN email TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE campuses ADD COLUMN receipt_prefix TEXT NOT NULL DEFAULT ''`,
 	} {
 		if _, err := db.Exec(stmt); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			return nil, fmt.Errorf("migrate: %w", err)
@@ -291,7 +327,8 @@ func seedDemo(app *App) error {
 	}
 	var campusIDs []int64
 	for _, name := range []string{"Tadika Taman Merak", "Tadika Merak Pintar", "Tadika Merak Cemerlang"} {
-		res, err := db.Exec(`INSERT INTO campuses (name) VALUES (?)`, name)
+		res, err := db.Exec(`INSERT INTO campuses (name, receipt_prefix, address, phone) VALUES (?,?,?,?)`,
+			name, defaultPrefix(name), "（示范地址 demo address）", "03-1234 5678")
 		if err != nil {
 			return err
 		}
