@@ -125,9 +125,6 @@ func (a *App) handleLogout(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleMe(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
 	resp := map[string]any{"user": u, "late_after": a.lateAfter, "today": a.now().Format("2006-01-02"), "currency": a.currency}
-	var push, wa bool
-	_ = a.db.QueryRow(`SELECT notify_push, notify_whatsapp FROM users WHERE id = ?`, u.ID).Scan(&push, &wa)
-	resp["notify"] = map[string]bool{"push": push, "whatsapp": wa, "whatsapp_available": a.notifier.wa.Enabled()}
 	if u.Role == "parent" {
 		children, err := a.queryStudents(`WHERE s.id IN (SELECT student_id FROM parent_students WHERE parent_id = ?)`, u.ID)
 		if err != nil {

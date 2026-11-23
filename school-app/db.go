@@ -108,6 +108,21 @@ CREATE TABLE IF NOT EXISTS notification_log (
 	created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS photos (
+	id          INTEGER PRIMARY KEY,
+	file_name   TEXT NOT NULL,
+	caption     TEXT NOT NULL DEFAULT '',
+	uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+	created_at  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS photo_students (
+	photo_id   INTEGER NOT NULL REFERENCES photos(id) ON DELETE CASCADE,
+	student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+	PRIMARY KEY (photo_id, student_id)
+);
+CREATE INDEX IF NOT EXISTS idx_photo_students_student ON photo_students(student_id);
+
 CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance(date);
 CREATE INDEX IF NOT EXISTS idx_receipts_status ON receipts(status);
 `
@@ -125,7 +140,6 @@ func openDB(path string) (*sql.DB, error) {
 	// Columns added after the first version; ignore "duplicate column" on databases that have them.
 	for _, stmt := range []string{
 		`ALTER TABLE users ADD COLUMN notify_push INTEGER NOT NULL DEFAULT 1`,
-		`ALTER TABLE users ADD COLUMN notify_whatsapp INTEGER NOT NULL DEFAULT 1`,
 	} {
 		if _, err := db.Exec(stmt); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			return nil, fmt.Errorf("migrate: %w", err)

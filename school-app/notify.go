@@ -1,8 +1,6 @@
 package main
 
 import (
-	"bytes"
-	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -10,42 +8,25 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 
 	webpush "github.com/SherClockHolmes/webpush-go"
 )
 
-// ---------- configuration ----------
-
-// WhatsAppConfig holds the WhatsApp Business Cloud API settings.
-// Token and phone number ID come from environment variables because they are secrets.
-type WhatsAppConfig struct {
-	Token        string // WHATSAPP_TOKEN
-	PhoneID      string // WHATSAPP_PHONE_ID
-	Template     string // approved message template name
-	TemplateLang string // e.g. zh_CN, en
-	CountryCode  string // added to local numbers like 012-3456789, e.g. 60
-	APIBase      string // https://graph.facebook.com/v21.0 (overridable for testing)
-}
-
-func (c WhatsAppConfig) Enabled() bool { return c.Token != "" && c.PhoneID != "" && c.Template != "" }
-
+// Notifier sends Web Push notifications to parents' phones (Android, iPhone home-screen app, desktop).
 type Notifier struct {
 	db         *sql.DB
 	vapidPub   string
 	vapidPriv  string
 	subscriber string
-	wa         WhatsAppConfig
 	client     *http.Client
 }
 
-func newNotifier(db *sql.DB, subscriber string, wa WhatsAppConfig) (*Notifier, error) {
+func newNotifier(db *sql.DB, subscriber string) (*Notifier, error) {
 	n := &Notifier{
 		db:         db,
 		subscriber: strings.TrimPrefix(subscriber, "mailto:"), // the library adds mailto: itself
-		wa:         wa,
 		client:     &http.Client{Timeout: 15 * time.Second},
 	}
 	// VAPID keys identify this server to browser push services. Create them once and keep them,
@@ -66,52 +47,23 @@ func newNotifier(db *sql.DB, subscriber string, wa WhatsAppConfig) (*Notifier, e
 	if err := db.QueryRow(`SELECT value FROM settings WHERE key = 'vapid_public'`).Scan(&n.vapidPub); err != nil {
 		return nil, err
 	}
-	if wa.Enabled() {
-		log.Printf("WhatsApp 通知已启用 / WhatsApp notifications enabled (template %q)", wa.Template)
-	} else {
-		log.Printf("WhatsApp 未设置，只发送 App 通知 / WhatsApp not configured; app push only")
-	}
 	return n, nil
-}
-
-func whatsAppFromEnv(template, lang, country string) WhatsAppConfig {
-	base := os.Getenv("WHATSAPP_API_BASE")
-	if base == "" {
-		base = "https://graph.facebook.com/v21.0"
-	}
-	return WhatsAppConfig{
-		Token:        os.Getenv("WHATSAPP_TOKEN"),
-		PhoneID:      os.Getenv("WHATSAPP_PHONE_ID"),
-		Template:     template,
-		TemplateLang: lang,
-		CountryCode:  strings.TrimPrefix(country, "+"),
-		APIBase:      strings.TrimRight(base, "/"),
-	}
-}
-
-// ---------- check-in notification ----------
-
-type parentContact struct {
-	ID       int64
-	Phone    string
-	Push     bool
-	WhatsApp bool
 }
 
 // notifyCheckin tells every parent of the student that the child arrived. It runs in the
 // background so the scanner gets its answer immediately.
 func (n *Notifier) notifyCheckin(s Student, checkinAt string, late bool) {
-	rows, err := n.db.Query(`SELECT u.id, u.phone, u.notify_push, u.notify_whatsapp FROM parent_students ps
-		JOIN users u ON u.id = ps.parent_id WHERE ps.student_id = ?`, s.ID)
+	rows, err := n.db.Query(`SELECT u.id FROM parent_students ps JOIN users u ON u.id = ps.parent_id
+		WHERE ps.student_id = ? AND u.notify_push = 1`, s.ID)
 	if err != nil {
 		logError(err)
 		return
 	}
-	var parents []parentContact
+	var parents []int64
 	for rows.Next() {
-		var p parentContact
-		if err := rows.Scan(&p.ID, &p.Phone, &p.Push, &p.WhatsApp); err == nil {
-			parents = append(parents, p)
+		var id int64
+		if rows.Scan(&id) == nil {
+			parents = append(parents, id)
 		}
 	}
 	rows.Close()
@@ -127,18 +79,8 @@ func (n *Notifier) notifyCheckin(s Student, checkinAt string, late bool) {
 		"url":   "/#home",
 		"tag":   fmt.Sprintf("checkin-%d", s.ID),
 	})
-	status := statusZh
-	if strings.HasPrefix(n.wa.TemplateLang, "en") {
-		status = statusEn
-	}
-	for _, p := range parents {
-		if p.Push {
-			n.sendPushToUser(p.ID, s.ID, payload)
-		}
-		if p.WhatsApp && n.wa.Enabled() && p.Phone != "" {
-			err := n.sendWhatsApp(p.Phone, []string{s.Name, tm, status})
-			n.record(p.ID, s.ID, "whatsapp", p.Phone, err)
-		}
+	for _, pid := range parents {
+		n.sendPushToUser(pid, s.ID, payload)
 	}
 }
 
@@ -149,20 +91,18 @@ func hhmm(rfc3339 string) string {
 	return rfc3339
 }
 
-func (n *Notifier) record(userID, studentID int64, channel, target string, err error) {
+func (n *Notifier) record(userID, studentID int64, target string, err error) {
 	ok, detail := 1, target
 	if err != nil {
 		ok, detail = 0, target+": "+err.Error()
-		log.Printf("notify %s to user %d failed: %v", channel, userID, err)
+		log.Printf("push to user %d failed: %v", userID, err)
 	}
 	if len(detail) > 500 {
 		detail = detail[:500]
 	}
 	_, _ = n.db.Exec(`INSERT INTO notification_log (user_id, student_id, channel, ok, detail, created_at)
-		VALUES (?,?,?,?,?,?)`, userID, nullInt(studentID), channel, ok, detail, time.Now().Format(time.RFC3339))
+		VALUES (?,?,'push',?,?,?)`, userID, nullInt(studentID), ok, detail, time.Now().Format(time.RFC3339))
 }
-
-// ---------- web push ----------
 
 func (n *Notifier) sendPushToUser(userID, studentID int64, payload []byte) {
 	rows, err := n.db.Query(`SELECT id, endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = ?`, userID)
@@ -204,7 +144,7 @@ func (n *Notifier) sendPushToUser(userID, studentID int64, payload []byte) {
 				err = fmt.Errorf("push service returned %s", resp.Status)
 			}
 		}
-		n.record(userID, studentID, "push", hostOf(x.s.Endpoint), err)
+		n.record(userID, studentID, hostOf(x.s.Endpoint), err)
 	}
 }
 
@@ -213,78 +153,6 @@ func hostOf(endpoint string) string {
 		return u.Host
 	}
 	return "?"
-}
-
-// ---------- WhatsApp ----------
-
-// normalizePhone turns "012-345 6789" into "60123456789" (international format, digits only).
-func normalizePhone(phone, country string) string {
-	var b strings.Builder
-	for _, r := range phone {
-		if r >= '0' && r <= '9' {
-			b.WriteRune(r)
-		}
-	}
-	d := b.String()
-	switch {
-	case strings.HasPrefix(strings.TrimSpace(phone), "+"):
-		return d
-	case strings.HasPrefix(d, "00"):
-		return d[2:]
-	case strings.HasPrefix(d, "0") && country != "":
-		return country + d[1:]
-	default:
-		return d
-	}
-}
-
-func (n *Notifier) sendWhatsApp(phone string, params []string) error {
-	to := normalizePhone(phone, n.wa.CountryCode)
-	if len(to) < 8 {
-		return fmt.Errorf("invalid phone number %q", phone)
-	}
-	var bodyParams []map[string]string
-	for _, p := range params {
-		bodyParams = append(bodyParams, map[string]string{"type": "text", "text": p})
-	}
-	msg := map[string]any{
-		"messaging_product": "whatsapp",
-		"to":                to,
-		"type":              "template",
-		"template": map[string]any{
-			"name":       n.wa.Template,
-			"language":   map[string]string{"code": n.wa.TemplateLang},
-			"components": []any{map[string]any{"type": "body", "parameters": bodyParams}},
-		},
-	}
-	body, _ := json.Marshal(msg)
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, n.wa.APIBase+"/"+n.wa.PhoneID+"/messages", bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Authorization", "Bearer "+n.wa.Token)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := n.client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	if resp.StatusCode >= 300 {
-		var e struct {
-			Error struct {
-				Message string `json:"message"`
-				Code    int    `json:"code"`
-			} `json:"error"`
-		}
-		if json.Unmarshal(respBody, &e) == nil && e.Error.Message != "" {
-			return fmt.Errorf("WhatsApp error %d: %s", e.Error.Code, e.Error.Message)
-		}
-		return fmt.Errorf("WhatsApp returned %s", resp.Status)
-	}
-	return nil
 }
 
 // ---------- HTTP handlers ----------
@@ -330,21 +198,6 @@ func (a *App) handlePushUnsubscribe(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
-func (a *App) handleNotifySettings(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Push     bool `json:"push"`
-		WhatsApp bool `json:"whatsapp"`
-	}
-	if !readJSON(w, r, &req) {
-		return
-	}
-	if _, err := a.db.Exec(`UPDATE users SET notify_push = ?, notify_whatsapp = ? WHERE id = ?`, req.Push, req.WhatsApp, currentUser(r).ID); err != nil {
-		serverError(w, err)
-		return
-	}
-	writeJSON(w, map[string]bool{"ok": true})
-}
-
 // handlePushTest sends a test notification to the current user's devices.
 func (a *App) handlePushTest(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
@@ -361,33 +214,10 @@ func (a *App) handlePushTest(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]int{"devices": n})
 }
 
-// handleWhatsAppTest lets the admin check the WhatsApp setup by sending the template to a number.
-func (a *App) handleWhatsAppTest(w http.ResponseWriter, r *http.Request) {
-	if !a.notifier.wa.Enabled() {
-		httpError(w, http.StatusBadRequest, "WhatsApp is not configured on the server")
-		return
-	}
-	var req struct{ Phone string }
-	if !readJSON(w, r, &req) {
-		return
-	}
-	status := "准时"
-	if strings.HasPrefix(a.notifier.wa.TemplateLang, "en") {
-		status = "on time"
-	}
-	err := a.notifier.sendWhatsApp(req.Phone, []string{"测试学生 Test", a.now().Format("15:04"), status})
-	a.notifier.record(currentUser(r).ID, 0, "whatsapp", req.Phone+" (test)", err)
-	if err != nil {
-		httpError(w, http.StatusBadGateway, err.Error())
-		return
-	}
-	writeJSON(w, map[string]bool{"ok": true})
-}
-
 func (a *App) handleNotificationLog(w http.ResponseWriter, r *http.Request) {
-	rows, err := a.db.Query(`SELECT l.id, COALESCE(u.name,''), COALESCE(s.name,''), l.channel, l.ok, l.detail, l.created_at
+	rows, err := a.db.Query(`SELECT l.id, COALESCE(u.name,''), COALESCE(s.name,''), l.ok, l.detail, l.created_at
 		FROM notification_log l LEFT JOIN users u ON u.id = l.user_id LEFT JOIN students s ON s.id = l.student_id
-		ORDER BY l.id DESC LIMIT 200`)
+		WHERE l.channel = 'push' ORDER BY l.id DESC LIMIT 200`)
 	if err != nil {
 		serverError(w, err)
 		return
@@ -397,7 +227,6 @@ func (a *App) handleNotificationLog(w http.ResponseWriter, r *http.Request) {
 		ID        int64  `json:"id"`
 		User      string `json:"user"`
 		Student   string `json:"student"`
-		Channel   string `json:"channel"`
 		OK        bool   `json:"ok"`
 		Detail    string `json:"detail"`
 		CreatedAt string `json:"created_at"`
@@ -405,11 +234,13 @@ func (a *App) handleNotificationLog(w http.ResponseWriter, r *http.Request) {
 	list := []entry{}
 	for rows.Next() {
 		var e entry
-		if err := rows.Scan(&e.ID, &e.User, &e.Student, &e.Channel, &e.OK, &e.Detail, &e.CreatedAt); err != nil {
+		if err := rows.Scan(&e.ID, &e.User, &e.Student, &e.OK, &e.Detail, &e.CreatedAt); err != nil {
 			serverError(w, err)
 			return
 		}
 		list = append(list, e)
 	}
-	writeJSON(w, map[string]any{"whatsapp_enabled": a.notifier.wa.Enabled(), "entries": list})
+	var devices int
+	_ = a.db.QueryRow(`SELECT COUNT(DISTINCT user_id) FROM push_subscriptions`).Scan(&devices)
+	writeJSON(w, map[string]any{"users_with_push": devices, "entries": list})
 }

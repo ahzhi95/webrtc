@@ -76,9 +76,9 @@ function classOptions(classes, selected, allLabel) {
 // ============ app state & shell ============
 const state = { me: null, tab: null, currency: 'RM' };
 const TABS = {
-  parent: [['home', '🏠'], ['notices', '📢'], ['receipts', '🧾'], ['me', '👤']],
-  teacher: [['scan', '📷'], ['attendance', '✅'], ['notices', '📢'], ['me', '👤']],
-  admin: [['scan', '📷'], ['attendance', '✅'], ['notices', '📢'], ['receipts', '🧾'], ['manage', '⚙️'], ['me', '👤']],
+  parent: [['home', '🏠'], ['photos', '🖼️'], ['notices', '📢'], ['receipts', '🧾'], ['me', '👤']],
+  teacher: [['scan', '📷'], ['attendance', '✅'], ['photos', '🖼️'], ['notices', '📢'], ['me', '👤']],
+  admin: [['scan', '📷'], ['attendance', '✅'], ['photos', '🖼️'], ['notices', '📢'], ['receipts', '🧾'], ['manage', '⚙️'], ['me', '👤']],
 };
 const VIEWS = {};
 let cleanup = null; // called when leaving a view (e.g. to stop the camera)
@@ -256,6 +256,12 @@ VIEWS.home = async (main) => {
         h('span', {}, hhmm(r.checkin_at)),
         h('span', { class: 'badge ' + (r.late ? 'warn' : 'ok') }, r.late ? t('late') : t('onTime'))))) : emptyRow()));
   }
+  const photos = children.length ? await api('GET', '/api/photos?limit=6') : [];
+  if (photos.length) {
+    out.push(h('section', { class: 'card' },
+      h('div', { class: 'row', style: 'margin-bottom:10px' }, h('h3', { class: 'grow', style: 'margin:0' }, t('latestPhotos')), h('button', { class: 'btn sm', onclick: () => go('photos') }, t('more'))),
+      photoGrid(photos, () => VIEWS.home(main))));
+  }
   if (notices.length) {
     const n = notices[0];
     out.push(h('section', { class: 'card' },
@@ -418,6 +424,147 @@ function exportCsv(date, rows) {
   const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
   const a = h('a', { href: URL.createObjectURL(blob), download: `attendance-${date}.csv` });
   document.body.append(a); a.click(); a.remove();
+}
+
+// ============ photos ============
+// Shrink a photo in the browser before upload: faster on mobile data, and drawing it on a canvas
+// applies the phone's rotation and drops metadata such as GPS location. The server re-encodes too.
+async function shrinkImage(file, maxSide = 1920) {
+  try {
+    const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
+    const scale = Math.min(1, maxSide / Math.max(bmp.width, bmp.height));
+    const c = document.createElement('canvas');
+    c.width = Math.round(bmp.width * scale); c.height = Math.round(bmp.height * scale);
+    c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
+    bmp.close && bmp.close();
+    const blob = await new Promise((res) => c.toBlob(res, 'image/jpeg', 0.88));
+    return blob || file;
+  } catch (e) { return file; } // e.g. a format this browser can't read: let the server try
+}
+
+const photoSrc = (p, size) => `/api/photos/${p.id}/image${size ? '?size=' + size : ''}`;
+
+function photoGrid(list, onChange) {
+  return h('div', { class: 'pgrid' }, list.map((p, i) => h('button', { class: 'pthumb', 'aria-label': p.caption || t('tab_photos'), onclick: () => openLightbox(list, i, onChange) },
+    h('img', { src: photoSrc(p, 'thumb'), alt: '', loading: 'lazy' }))));
+}
+
+function openLightbox(list, index, onChange) {
+  let i = index;
+  const img = h('img', { alt: '' });
+  const info = h('div', { class: 'lb-info' });
+  const box = h('div', { class: 'lightbox', role: 'dialog', 'aria-modal': 'true' });
+  const close = () => { box.remove(); document.removeEventListener('keydown', onKey); };
+  const show = () => {
+    const p = list[i];
+    img.src = photoSrc(p);
+    const canDelete = state.me.user.role === 'admin' || (state.me.user.role === 'teacher' && p.uploader_id === state.me.user.id);
+    info.replaceChildren(
+      p.caption && h('div', { class: 'lb-cap' }, p.caption),
+      h('div', {}, p.students.map((s) => h('span', { class: 'chip', style: 'padding-right:10px' }, s.name))),
+      h('div', { class: 'small', style: 'opacity:.75' }, dateTime(p.created_at), ' · ', p.uploaded_by),
+      h('div', { class: 'row', style: 'margin-top:8px' },
+        h('a', { class: 'btn sm', href: photoSrc(p) + (photoSrc(p).includes('?') ? '&' : '?') + 'download=1' }, '⬇ ', t('download')),
+        h('span', { class: 'spacer' }),
+        canDelete && h('button', { class: 'btn sm bad', onclick: async () => {
+          if (confirm(t('confirmDelete')) && await run(() => api('DELETE', `/api/photos/${p.id}`), t('deleted'))) { close(); onChange && onChange(); }
+        } }, t('delete'))));
+    prev.disabled = i === 0; next.disabled = i === list.length - 1;
+  };
+  const prev = h('button', { class: 'lb-nav lb-prev', 'aria-label': '‹', onclick: () => { if (i > 0) { i--; show(); } } }, '‹');
+  const next = h('button', { class: 'lb-nav lb-next', 'aria-label': '›', onclick: () => { if (i < list.length - 1) { i++; show(); } } }, '›');
+  const onKey = (e) => { if (e.key === 'Escape') close(); if (e.key === 'ArrowLeft') prev.click(); if (e.key === 'ArrowRight') next.click(); };
+  box.append(h('button', { class: 'lb-close', 'aria-label': t('close'), onclick: close }, '✕'), h('div', { class: 'lb-img' }, img, prev, next), info);
+  box.addEventListener('click', (e) => { if (e.target === box) close(); });
+  document.addEventListener('keydown', onKey);
+  document.body.append(box);
+  show();
+}
+
+const photoFilter = { classId: '', studentId: '' };
+VIEWS.photos = async (main) => {
+  const staff = state.me.user.role !== 'parent';
+  const rerender = () => VIEWS.photos(main);
+  const parts = [h('h2', {}, t('photosTitle'))];
+  let classes = [], students = [];
+  if (staff) {
+    [classes, students] = await Promise.all([api('GET', '/api/classes'), api('GET', '/api/students')]);
+    if (!photoFilter.classId && state.me.user.role === 'teacher') {
+      const mine = classes.find((c) => c.teacher_id === state.me.user.id);
+      if (mine) photoFilter.classId = String(mine.id);
+    }
+    parts.push(photoUploadCard(classes, students, rerender));
+    parts.push(h('div', { class: 'row' },
+      h('select', { class: 'grow', onchange: (e) => { photoFilter.classId = e.target.value; photoFilter.studentId = ''; rerender(); } }, classOptions(classes, photoFilter.classId, t('allClasses'))),
+      h('select', { class: 'grow', onchange: (e) => { photoFilter.studentId = e.target.value; rerender(); } },
+        h('option', { value: '' }, t('allStudents')),
+        students.filter((s) => !photoFilter.classId || String(s.class_id) === photoFilter.classId)
+          .map((s) => h('option', { value: s.id, selected: String(s.id) === photoFilter.studentId }, s.name)))));
+  } else {
+    const children = state.me.children || [];
+    if (children.length > 1) {
+      parts.push(h('div', { class: 'seg' }, [{ id: '', name: t('allStudents') }, ...children].map((c) =>
+        h('button', { class: String(c.id) === photoFilter.studentId ? 'on' : null, onclick: () => { photoFilter.studentId = String(c.id); rerender(); } }, c.name))));
+    }
+  }
+  const q = new URLSearchParams();
+  if (photoFilter.studentId) q.set('student_id', photoFilter.studentId);
+  else if (staff && photoFilter.classId) q.set('class_id', photoFilter.classId);
+  const list = await api('GET', '/api/photos?' + q);
+  parts.push(list.length ? photoGrid(list, rerender) : h('div', { class: 'card empty' }, t('noPhotos')));
+  if (!staff) parts.push(h('p', { class: 'small muted', style: 'text-align:center' }, '🔒 ', t('photoPrivacy')));
+  main.replaceChildren(h('div', { class: 'stack' }, parts));
+};
+
+function photoUploadCard(classes, students, done) {
+  const picked = new Set();
+  let cls = photoFilter.classId;
+  const listBox = h('div', { class: 'picklist' });
+  const count = h('span', { class: 'muted small' });
+  const renderList = () => {
+    const visible = students.filter((s) => !cls || String(s.class_id) === cls);
+    listBox.replaceChildren(...visible.map((s) => h('label', { class: 'pick' + (picked.has(s.id) ? ' on' : '') },
+      h('input', { type: 'checkbox', checked: picked.has(s.id), onchange: (e) => { e.target.checked ? picked.add(s.id) : picked.delete(s.id); renderList(); } }),
+      s.name)));
+    count.textContent = t('selectedN', { n: picked.size });
+  };
+  const visibleIds = () => students.filter((s) => !cls || String(s.class_id) === cls).map((s) => s.id);
+  const files = h('input', { type: 'file', accept: 'image/*', multiple: true, required: true });
+  const caption = h('input', { type: 'text', maxlength: 200, placeholder: t('captionPh') });
+  const status = h('div', { class: 'small muted', 'aria-live': 'polite' });
+  const btn = h('button', { class: 'btn primary block', type: 'submit' }, t('upload'));
+  renderList();
+  return h('details', { class: 'add card' }, h('summary', {}, t('uploadPhotos')),
+    h('form', { onsubmit: async (e) => {
+      e.preventDefault();
+      if (!picked.size) { toast(t('pickStudentsFirst')); return; }
+      const chosen = [...files.files];
+      if (!chosen.length) return;
+      btn.disabled = true;
+      const fd = new FormData();
+      picked.forEach((id) => fd.append('student_id', id));
+      fd.set('caption', caption.value);
+      for (let k = 0; k < chosen.length; k++) {
+        status.textContent = t('processing', { n: k + 1, total: chosen.length });
+        fd.append('photo', await shrinkImage(chosen[k]), `photo${k}.jpg`);
+      }
+      status.textContent = t('sending');
+      const ok = await run(async () => { const r = await api('POST', '/api/photos', fd); toast(t('photosUploaded', { n: r.uploaded })); });
+      status.textContent = '';
+      btn.disabled = false;
+      if (ok) done();
+    } },
+    h('label', { class: 'f' }, t('choosePhotos'), files),
+    h('div', { class: 'f' },
+      h('div', { class: 'row', style: 'margin-bottom:6px' }, h('span', { class: 'grow' }, t('whoInPhoto')), count),
+      h('div', { class: 'row', style: 'margin-bottom:8px' },
+        h('select', { class: 'grow', onchange: (e) => { cls = e.target.value; renderList(); } }, classOptions(classes, cls, t('allClasses'))),
+        h('button', { type: 'button', class: 'btn sm', onclick: () => { visibleIds().forEach((id) => picked.add(id)); renderList(); } }, t('selectAll')),
+        h('button', { type: 'button', class: 'btn sm', onclick: () => { picked.clear(); renderList(); } }, t('clearSel'))),
+      listBox),
+    h('label', { class: 'f' }, t('caption'), caption),
+    h('p', { class: 'small muted' }, '🔒 ', t('photoPrivacyStaff')),
+    status, btn));
 }
 
 // ============ notices ============
@@ -602,18 +749,11 @@ VIEWS.manage = async (main) => {
 
   if (manageTab === 'notify') {
     const data = await api('GET', '/api/notifications/log');
-    const phone = h('input', { type: 'tel', required: true, placeholder: '012-3456789' });
-    body.push(h('section', { class: 'card' },
-      h('h3', {}, 'WhatsApp ', data.whatsapp_enabled ? h('span', { class: 'badge ok' }, t('waEnabled')) : h('span', { class: 'badge warn' }, t('waDisabled'))),
-      data.whatsapp_enabled
-        ? h('form', { class: 'row', onsubmit: async (e) => { e.preventDefault(); if (await run(() => api('POST', '/api/notifications/whatsapp-test', { phone: phone.value }), t('waTestSent'))) rerender(); } },
-          h('div', { class: 'grow' }, phone), h('button', { class: 'btn primary' }, t('waTest')))
-        : h('p', { class: 'small muted', style: 'margin:0' }, t('waSetupHint'))));
+    body.push(h('section', { class: 'card' }, h('p', { class: 'small muted', style: 'margin:0' }, t('pushUsers', { n: data.users_with_push }))));
     body.push(h('section', { class: 'card' }, h('h3', {}, t('notifyLog')),
       data.entries.length ? h('ul', { class: 'list' }, data.entries.map((e) => h('li', {},
         h('div', { class: 'row' },
           h('span', { class: 'badge ' + (e.ok ? 'ok' : 'bad') }, e.ok ? '✓' : '✗'),
-          h('span', { class: 'badge info' }, e.channel === 'push' ? 'App' : 'WhatsApp'),
           h('span', { class: 'grow' }, e.user, e.student ? ' ← ' + e.student : ''),
           h('span', { class: 'muted small' }, dateTime(e.created_at))),
         h('div', { class: 'muted small', style: 'word-break:break-all' }, e.detail)))) : emptyRow()));
@@ -637,8 +777,6 @@ VIEWS.manage = async (main) => {
 // ============ me ============
 VIEWS.me = async (main) => {
   const u = state.me.user;
-  const me = await api('GET', '/api/me');
-  const notify = me.notify || {};
   const rerender = () => VIEWS.me(main);
   const sub = await push.current().catch(() => null);
   let pushPart;
@@ -652,17 +790,6 @@ VIEWS.me = async (main) => {
   } else if (Notification.permission === 'denied') pushPart = h('p', { class: 'small muted' }, t('pushBlocked'));
   else pushPart = h('button', { class: 'btn primary', onclick: async () => { if (await run(() => push.enable(), t('pushOn'))) rerender(); } }, t('pushEnable'));
 
-  let waPart = null;
-  if (u.role === 'parent') {
-    if (!notify.whatsapp_available) waPart = h('p', { class: 'small muted', style: 'margin:0' }, t('waNotAvailable'));
-    else if (!u.phone) waPart = h('p', { class: 'small muted', style: 'margin:0' }, t('waNoPhone'));
-    else {
-      waPart = h('label', { class: 'row' },
-        h('input', { type: 'checkbox', checked: notify.whatsapp, onchange: (e) => run(() => api('POST', '/api/me/notify', { push: true, whatsapp: e.target.checked }), t('saved')) }),
-        h('span', { class: 'grow' }, t('waToggle', { p: u.phone }), h('div', { class: 'small muted' }, t('waPhoneWrong'))));
-    }
-  }
-
   const oldPw = h('input', { type: 'password', required: true, autocomplete: 'current-password' });
   const newPw = h('input', { type: 'password', required: true, minlength: 6, autocomplete: 'new-password' });
   main.replaceChildren(h('div', { class: 'stack' },
@@ -671,8 +798,7 @@ VIEWS.me = async (main) => {
       h('div', { class: 'muted' }, t('role_' + u.role), ' · ', u.username)),
     h('section', { class: 'card stack' },
       h('h3', {}, '🔔 ', t('notifications')),
-      h('div', {}, h('div', { class: 'small muted', style: 'margin-bottom:6px' }, t('pushTitle')), pushPart),
-      waPart && h('div', {}, h('div', { class: 'small muted', style: 'margin-bottom:6px' }, 'WhatsApp'), waPart)),
+      h('div', {}, h('div', { class: 'small muted', style: 'margin-bottom:6px' }, t('pushTitle')), pushPart)),
     h('section', { class: 'card' },
       h('h3', {}, t('language')),
       h('div', { class: 'seg' }, [['zh', '中文'], ['en', 'English']].map(([k, label]) =>

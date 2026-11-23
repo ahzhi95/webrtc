@@ -38,9 +38,6 @@ func main() {
 	late := flag.String("late", "07:30", "check-ins after this time (HH:MM) are marked late")
 	currency := flag.String("currency", "RM", "currency label shown next to amounts")
 	pushContact := flag.String("push-contact", "admin@example.com", "school e-mail or https URL sent to push services as a contact")
-	waTemplate := flag.String("wa-template", "student_checkin", "approved WhatsApp template name (3 body variables: name, time, status)")
-	waLang := flag.String("wa-lang", "zh_CN", "WhatsApp template language code")
-	country := flag.String("country-code", "60", "country calling code added to local phone numbers starting with 0")
 	demo := flag.Bool("demo", false, "add sample classes, students and accounts to an empty database")
 	certFile := flag.String("tls-cert", "", "TLS certificate file (enables HTTPS)")
 	keyFile := flag.String("tls-key", "", "TLS key file")
@@ -72,7 +69,7 @@ func main() {
 	if err := ensureAdmin(db, os.Getenv("ADMIN_PASSWORD")); err != nil {
 		log.Fatal(err)
 	}
-	app.notifier, err = newNotifier(db, *pushContact, whatsAppFromEnv(*waTemplate, *waLang, *country))
+	app.notifier, err = newNotifier(db, *pushContact)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -140,9 +137,13 @@ func (a *App) routes() http.Handler {
 	mux.Handle("POST /api/push/subscribe", a.auth(a.handlePushSubscribe))
 	mux.Handle("POST /api/push/unsubscribe", a.auth(a.handlePushUnsubscribe))
 	mux.Handle("POST /api/push/test", a.auth(a.handlePushTest))
-	mux.Handle("POST /api/me/notify", a.auth(a.handleNotifySettings))
 	mux.Handle("GET /api/notifications/log", a.auth(a.handleNotificationLog, "admin"))
-	mux.Handle("POST /api/notifications/whatsapp-test", a.auth(a.handleWhatsAppTest, "admin"))
+
+	// Student photos (parents only see photos of their own children)
+	mux.Handle("GET /api/photos", a.auth(a.handleListPhotos))
+	mux.Handle("POST /api/photos", a.auth(a.handleUploadPhotos, "admin", "teacher"))
+	mux.Handle("GET /api/photos/{id}/image", a.auth(a.handlePhotoImage))
+	mux.Handle("DELETE /api/photos/{id}", a.auth(a.handleDeletePhoto, "admin", "teacher"))
 
 	// Tuition receipts
 	mux.Handle("GET /api/receipts", a.auth(a.handleListReceipts, "admin", "parent"))
