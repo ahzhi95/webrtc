@@ -55,6 +55,7 @@ MANAGE.students = async (body, rerender) => {
   const students = await api('GET', '/api/students' + (manageFilter.classId ? '?class_id=' + manageFilter.classId : ''));
   body.push(h('div', { class: 'row' },
     h('select', { class: 'grow', onchange: (e) => { manageFilter.classId = e.target.value; rerender(); } }, classOptions(classes, manageFilter.classId, t('allClasses'))),
+    h('button', { class: 'btn', onclick: () => importDialog(rerender) }, '📥 ', t('importExcel')),
     h('button', { class: 'btn primary', onclick: () => studentDialog(null, classes, rerender) }, t('newStudent'))));
   body.push(h('section', { class: 'card' }, students.length ? h('ul', { class: 'list' }, students.map((s) => h('li', {},
     h('div', { class: 'row' },
@@ -72,6 +73,74 @@ MANAGE.students = async (body, rerender) => {
       } }, h('option', { value: '' }, t('linkParent')),
       users.filter((p) => !(s.parents || []).some((x) => x.id === p.id)).map((p) => h('option', { value: p.id }, p.name + (p.phone ? ` (${p.phone})` : '')))))))) : emptyRow()));
 };
+
+// ---------- bulk import from Excel ----------
+// Step 1: upload → preview (nothing saved). Step 2: confirm → import all rows, then download the new parents' first passwords.
+function importDialog(done) {
+  const file = h('input', { type: 'file', accept: '.xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv' });
+  const out = h('div', { 'aria-live': 'polite' });
+  const actions = h('div', { class: 'row' });
+  let imported = false;
+  const send = async (dryRun) => {
+    if (!file.files[0]) { toast(t('err:please choose a file')); return null; }
+    const fd = new FormData();
+    fd.set('file', file.files[0]);
+    out.replaceChildren(h('div', { class: 'muted' }, t('loading')));
+    try { return await api('POST', '/api/import/students' + (dryRun ? '?dry_run=1' : ''), fd); }
+    catch (e) { out.replaceChildren(h('div', { class: 'alert' }, e.message)); return null; }
+  };
+  const summary = (sm) => h('div', { class: 'import-sum' },
+    [['new', 'ok'], ['update', 'info'], ['error', 'bad'], ['new_parents', ''], ['linked_parents', ''], ['new_classes', '']].map(([k, cls]) =>
+      h('span', { class: 'badge ' + cls }, t('imp_' + k), ' ', sm[k] || 0)));
+  const rowList = (rows) => h('ul', { class: 'list import-rows' }, rows.map((r) => h('li', { class: r.action === 'error' ? 'imp-err' : null },
+    h('div', { class: 'row' },
+      h('span', { class: 'muted small' }, '#', r.row),
+      h('b', { class: 'grow' }, r.student_no, ' ', r.name),
+      h('span', { class: 'badge ' + ({ new: 'ok', update: 'info', error: 'bad' }[r.action]) }, t('imp_' + r.action))),
+    h('div', { class: 'small muted' }, r.campus && allCampuses() ? r.campus + ' · ' : '', r.class, r.new_class ? ' (' + t('imp_newClassTag') + ')' : '',
+      r.parents.length ? ' · ' + r.parents.map((p) => `${p.name || p.phone} (${t(p.action === 'new' ? 'imp_parentNew' : 'imp_parentLink')})`).join('、') : ''),
+    r.errors.map((e) => h('div', { class: 'small bad-text' }, '⚠ ', e)))));
+  const preview = async () => {
+    const r = await send(true);
+    if (!r) return;
+    const errors = r.summary.error || 0;
+    const count = (r.summary.new || 0) + (r.summary.update || 0);
+    out.replaceChildren(summary(r.summary),
+      errors ? h('div', { class: 'alert' }, t('imp_fixErrors', { n: errors })) : count ? h('p', { class: 'small' }, t('imp_ready', { n: count })) : h('p', { class: 'muted' }, t('none')),
+      rowList(r.rows));
+    actions.replaceChildren(...(!errors && count > 0 ? [h('button', { type: 'button', class: 'btn primary block', onclick: confirmImport }, t('imp_confirm', { n: count }))] : []));
+  };
+  const confirmImport = async () => {
+    actions.querySelector('button').disabled = true;
+    const r = await send(false);
+    if (!r) return;
+    if (!r.imported) { preview(); return; }
+    imported = true;
+    const saveAccounts = () => {
+      const bin = atob(r.accounts_xlsx);
+      const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+      saveBlob(new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `parent-accounts-${todayStr()}.xlsx`);
+    };
+    out.replaceChildren(h('div', { class: 'result ok' }, h('div', { class: 'big' }, '✓ ', t('imp_done', { n: (r.summary.new || 0) + (r.summary.update || 0) }))),
+      summary(r.summary),
+      ...(r.new_accounts > 0 ? [h('div', { class: 'alert warn-alert' }, t('imp_accountsWarn', { n: r.new_accounts }))] : []));
+    actions.replaceChildren(...(r.new_accounts > 0 ? [h('button', { type: 'button', class: 'btn primary block', onclick: saveAccounts }, '⬇ ', t('imp_downloadAccounts'))] : []));
+    if (r.new_accounts > 0) saveAccounts();
+  };
+  file.addEventListener('change', preview);
+  const close = openDialog(t('importExcel'), [
+    h('ol', { class: 'small', style: 'margin:0 0 12px;padding-left:20px' },
+      h('li', {}, t('imp_step1'), ' ', h('a', { href: '/api/import/template.xlsx', download: 'student-import-template.xlsx' }, '⬇ ', t('imp_template'))),
+      h('li', {}, t('imp_step2')),
+      h('li', {}, t('imp_step3'))),
+    field(t('imp_file'), file),
+    out, actions,
+  ], null);
+  // Refresh the student list once the dialog closes after an import.
+  const back = document.querySelector('.dialog-back');
+  new MutationObserver((_, obs) => { if (!document.body.contains(back)) { obs.disconnect(); if (imported) done(); } }).observe(document.body, { childList: true });
+  return close;
+}
 
 // ---------- classes ----------
 function classDialog(c, campuses, teachers, done) {
@@ -100,7 +169,8 @@ MANAGE.classes = async (body, rerender) => {
 // ---------- accounts ----------
 function userDialog(u, campuses, done) {
   const top = allCampuses();
-  const role = h('select', {}, ['parent', 'teacher', 'admin'].map((r) => h('option', { value: r, selected: u ? u.role === r : r === 'parent' }, t('role_' + r))));
+  const roles = top ? ['parent', 'teacher', 'admin'] : ['parent', 'teacher']; // only the super admin adds admins
+  const role = h('select', {}, roles.map((r) => h('option', { value: r, selected: u ? u.role === r : r === 'parent' }, t('role_' + r))));
   const name = h('input', { type: 'text', required: true, value: u ? u.name : '' });
   const username = h('input', { type: 'text', required: true, autocapitalize: 'none', pattern: '[a-zA-Z0-9._\\-]{3,32}' });
   const phone = h('input', { type: 'tel', value: u ? u.phone : '' });
@@ -141,7 +211,7 @@ MANAGE.users = async (body, rerender) => {
         u.disabled && h('span', { class: 'badge bad', style: 'margin-left:4px' }, t('disabled')),
         h('div', { class: 'muted small' }, u.username, u.phone ? ' · ' + u.phone : '', u.email ? ' · ' + u.email : ''),
         u.children && h('div', { class: 'muted small' }, t('children'), ': ', u.children.map((c) => c.name).join('、')))),
-    h('div', { class: 'row', style: 'margin-top:6px;justify-content:flex-end' },
+    (allCampuses() || u.role !== 'admin') && h('div', { class: 'row', style: 'margin-top:6px;justify-content:flex-end' },
       h('button', { class: 'btn sm', onclick: () => userDialog(u, campuses, rerender) }, t('edit')),
       h('button', { class: 'btn sm', onclick: async () => {
         const p = prompt(t('newPwPrompt'));

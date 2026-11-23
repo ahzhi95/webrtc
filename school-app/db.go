@@ -29,10 +29,13 @@ CREATE TABLE IF NOT EXISTS sessions (
 	expires_at INTEGER NOT NULL
 );
 
+-- Class names are unique within a campus (each school may have its own "5岁 Melati").
 CREATE TABLE IF NOT EXISTS classes (
 	id         INTEGER PRIMARY KEY,
-	name       TEXT NOT NULL UNIQUE,
-	teacher_id INTEGER REFERENCES users(id) ON DELETE SET NULL
+	name       TEXT NOT NULL,
+	teacher_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+	campus_id  INTEGER REFERENCES campuses(id) ON DELETE SET NULL,
+	UNIQUE (campus_id, name)
 );
 
 CREATE TABLE IF NOT EXISTS students (
@@ -245,6 +248,9 @@ func openDB(path string) (*sql.DB, error) {
 			return nil, fmt.Errorf("migrate: %w", err)
 		}
 	}
+	if err := migrateClassNames(db); err != nil {
+		return nil, fmt.Errorf("migrate classes: %w", err)
+	}
 	// Databases from before campuses existed: put their classes into one campus the admin can rename.
 	var orphan, campuses int
 	_ = db.QueryRow(`SELECT COUNT(*) FROM classes WHERE campus_id IS NULL`).Scan(&orphan)
@@ -260,6 +266,45 @@ func openDB(path string) (*sql.DB, error) {
 		}
 	}
 	return db, nil
+}
+
+// migrateClassNames rebuilds the classes table of databases from before campuses, where class
+// names had to be unique across all schools. SQLite cannot drop a constraint, so the table is
+// copied into a new one (ids unchanged) with foreign key checks paused.
+func migrateClassNames(db *sql.DB) error {
+	var ddl string
+	if err := db.QueryRow(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'classes'`).Scan(&ddl); err != nil {
+		return err
+	}
+	if !strings.Contains(ddl, "name       TEXT NOT NULL UNIQUE") && !strings.Contains(ddl, "name TEXT NOT NULL UNIQUE") {
+		return nil
+	}
+	if _, err := db.Exec(`PRAGMA foreign_keys = OFF`); err != nil {
+		return err
+	}
+	defer db.Exec(`PRAGMA foreign_keys = ON`)
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, stmt := range []string{
+		`CREATE TABLE classes_new (
+			id         INTEGER PRIMARY KEY,
+			name       TEXT NOT NULL,
+			teacher_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+			campus_id  INTEGER REFERENCES campuses(id) ON DELETE SET NULL,
+			UNIQUE (campus_id, name)
+		)`,
+		`INSERT INTO classes_new (id, name, teacher_id, campus_id) SELECT id, name, teacher_id, campus_id FROM classes`,
+		`DROP TABLE classes`,
+		`ALTER TABLE classes_new RENAME TO classes`,
+	} {
+		if _, err := tx.Exec(stmt); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func randomToken(nBytes int) string {

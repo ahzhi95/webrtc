@@ -128,6 +128,8 @@ func (a *App) routes() http.Handler {
 	mux.Handle("POST /api/students/{id}/parents", a.auth(a.handleLinkParent, "admin"))
 	mux.Handle("DELETE /api/students/{id}/parents/{pid}", a.auth(a.handleUnlinkParent, "admin"))
 	mux.Handle("POST /api/students/{id}/qr/reset", a.auth(a.handleResetQR, "admin"))
+	mux.Handle("GET /api/import/template.xlsx", a.auth(a.handleImportTemplate, "admin"))
+	mux.Handle("POST /api/import/students", a.auth(a.handleImportStudents, "admin"))
 	mux.Handle("GET /api/students/{id}/qr.png", a.auth(a.handleStudentQR, "admin", "teacher"))
 
 	// Arrival / departure

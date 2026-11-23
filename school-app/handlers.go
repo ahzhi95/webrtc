@@ -85,6 +85,9 @@ func (a *App) userInScope(u *User, targetID int64) bool {
 	if scope(u) == 0 {
 		return true
 	}
+	if role == "admin" { // only the top-level admin manages admin accounts
+		return false
+	}
 	if campus == scope(u) {
 		return true
 	}
@@ -395,6 +398,9 @@ func (a *App) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	case !a.validCampus(req.CampusID):
 		httpError(w, http.StatusBadRequest, "invalid campus")
+		return
+	case req.Role == "admin" && !isTopAdmin(u):
+		httpError(w, http.StatusForbidden, "only the super admin can add admins")
 		return
 	}
 	id, err := createUser(a.db, req.Username, req.Password, req.Name, strings.TrimSpace(req.Phone), req.Role)
