@@ -190,6 +190,8 @@ window.I18N = {
     goodMorning: '早安', goodAfternoon: '午安', goodEvening: '晚上好', details: '详情', latestOn: '最新 {d}', nNew: '{n} 则新的',
     allRead: '都看过了', nUnread: '{n} 条未读',
     // security
+    todayTitle: '今天', chipIn: '{t} 到园', chipLate: '{t} 迟到', chipOut: '{t} 离园', chipNone: '未到',
+    sibTitle: '同一家庭的孩子', sibIn: '{n} 也一起到园', sibOut: '{n} 也一起离园', sibNone: '没有勾选孩子', sibSkip: '不用，继续扫描',
     langSavedHint: '已设为中文。以后可在「我的 → 语言」更改。',
     m_security: '安全记录', securityHint: '登录、失败尝试、密码与账号变更的记录（保留最近 200 条）。', failedLogins: '最近有 {n} 次登录失败。如有可疑，请提醒相关用户修改密码。',
     ev_login_ok: '登录成功', ev_login_fail: '登录失败', ev_login_blocked: '尝试太多次，已暂时封锁', ev_login_2fa_fail: '验证码错误',
@@ -361,6 +363,8 @@ window.I18N = {
     tag_festival: 'Festival', tag_birthday: 'Birthday', tag_trip: 'Field trip', tag_other: 'Other',
     goodMorning: 'Good morning', goodAfternoon: 'Good afternoon', goodEvening: 'Good evening', details: 'Details', latestOn: 'Latest {d}', nNew: '{n} new',
     allRead: 'All read', nUnread: '{n} unread',
+    todayTitle: 'Today', chipIn: 'In {t}', chipLate: 'Late {t}', chipOut: 'Left {t}', chipNone: 'Not yet',
+    sibTitle: 'Same family', sibIn: 'Check in {n} too', sibOut: 'Check out {n} too', sibNone: 'No child ticked', sibSkip: 'No thanks, keep scanning',
     langSavedHint: 'English is now your language. You can change it anytime under Me → Language.',
     m_security: 'Security log', securityHint: 'Sign-ins, failed attempts, password and account changes (latest 200).', failedLogins: '{n} failed sign-in(s) recently. If anything looks suspicious, ask the user to change their password.',
     ev_login_ok: 'Signed in', ev_login_fail: 'Sign-in failed', ev_login_blocked: 'Too many attempts, blocked for now', ev_login_2fa_fail: 'Wrong verification code',

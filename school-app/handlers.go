@@ -309,7 +309,7 @@ var usernameRe = regexp.MustCompile(`^[a-z0-9._-]{3,32}$`)
 
 type UserRow struct {
 	User
-	Children  []PhotoStudent `json:"children,omitempty"`
+	Children []PhotoStudent `json:"children,omitempty"`
 }
 
 func (a *App) handleListUsers(w http.ResponseWriter, r *http.Request) {

@@ -18,16 +18,16 @@ import (
 var webFiles embed.FS
 
 type App struct {
-	db         *sql.DB
-	uploadDir  string
-	loc        *time.Location
-	lateAfter  string // "HH:MM" local time; check-ins after this are marked late
-	secure     bool   // set the Secure flag on cookies (when served over HTTPS)
-	limiter    *loginLimiter
-	currency   string           // shown next to amounts, e.g. "RM"
-	notifier   *Notifier
-	mailer     *Mailer // nil when no mail server is configured
-	baseURL    string  // public address used in emailed links
+	db        *sql.DB
+	uploadDir string
+	loc       *time.Location
+	lateAfter string // "HH:MM" local time; check-ins after this are marked late
+	secure    bool   // set the Secure flag on cookies (when served over HTTPS)
+	limiter   *loginLimiter
+	currency  string // shown next to amounts, e.g. "RM"
+	notifier  *Notifier
+	mailer    *Mailer // nil when no mail server is configured
+	baseURL   string  // public address used in emailed links
 }
 
 func (a *App) now() time.Time { return time.Now().In(a.loc) }

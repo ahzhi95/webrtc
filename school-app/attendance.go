@@ -103,7 +103,40 @@ func (a *App) handleScan(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	writeJSON(w, out)
+	writeJSON(w, map[string]any{"result": out, "siblings": a.siblings(u, list[0].ID, req.Mode)})
+}
+
+// Sibling is a brother or sister of a scanned child (they share a parent account), with whether
+// today's arrival / departure is already recorded.
+type Sibling struct {
+	Student
+	Done bool `json:"done"`
+}
+
+// siblings lists the other children of the same family that this staff member may record, so one
+// scan at the gate can check in or out the whole family.
+func (a *App) siblings(u *User, studentID int64, mode string) []Sibling {
+	list, err := a.queryStudents(`WHERE s.id IN (SELECT ps2.student_id FROM parent_students ps1
+		JOIN parent_students ps2 ON ps2.parent_id = ps1.parent_id WHERE ps1.student_id = ? AND ps2.student_id != ?)`, studentID, studentID)
+	if err != nil {
+		logError(err)
+		return []Sibling{}
+	}
+	col := "checkin_at"
+	if mode == modeOut {
+		col = "checkout_at"
+	}
+	date := a.now().Format("2006-01-02")
+	out := []Sibling{}
+	for _, st := range list {
+		if !a.canAccessStudent(u, st.ID) {
+			continue
+		}
+		var v string
+		_ = a.db.QueryRow(`SELECT `+col+` FROM attendance WHERE student_id = ? AND date = ?`, st.ID, date).Scan(&v)
+		out = append(out, Sibling{Student: st, Done: v != ""})
+	}
+	return out
 }
 
 // handleMark records arrival/departure for one or many students: roll call (点名) on the class list,
@@ -111,8 +144,9 @@ func (a *App) handleScan(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleMark(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
 	var req struct {
-		Mode    string `json:"mode"`
-		Entries []struct {
+		Mode         string `json:"mode"`
+		WithSiblings bool   `json:"with_siblings"` // one child without a card: also list the brothers and sisters
+		Entries      []struct {
 			StudentID int64  `json:"student_id"`
 			Time      string `json:"time"`
 		} `json:"entries"`
@@ -158,7 +192,11 @@ func (a *App) handleMark(w http.ResponseWriter, r *http.Request) {
 			recorded++
 		}
 	}
-	writeJSON(w, map[string]any{"recorded": recorded, "already": len(results) - recorded, "results": results})
+	resp := map[string]any{"recorded": recorded, "already": len(results) - recorded, "results": results}
+	if req.WithSiblings && len(results) == 1 {
+		resp["siblings"] = a.siblings(u, results[0].Student.ID, req.Mode)
+	}
+	writeJSON(w, resp)
 }
 
 // handleEditAttendance corrects a submitted time. A reason is required and every change is kept (留痕).

@@ -58,8 +58,10 @@ VIEWS.scan = async (main) => {
   async function submit(path, body) {
     try {
       let r = await api('POST', path, body);
-      if (r.results) r = r.results[0];
+      const sibs = r.siblings || [];
+      r = r.result || (r.results && r.results[0]) || r;
       showResult(r);
+      showSiblings(sibs, r.mode);
     } catch (e) {
       beep(false);
       result.replaceChildren(h('div', { class: 'result bad' }, h('div', { class: 'big' }, e.message)));
@@ -78,6 +80,42 @@ VIEWS.scan = async (main) => {
       h('div', { class: 'big' }, out ? hhmm(r.checkout_at) : [hhmm(r.checkin_at), ' · ', r.late ? t('late') : t('onTime')])));
   }
 
+  // Brothers and sisters of the child just scanned: ticked when not yet recorded, one tap records them all.
+  function showSiblings(sibs, mode) {
+    const open = sibs.filter((x) => !x.done);
+    if (!open.length) return;
+    const ticks = new Map();
+    const btn = h('button', { class: 'btn primary block', type: 'button' });
+    const label = () => {
+      const names = open.filter((x) => ticks.get(x.id).checked).map((x) => x.name);
+      btn.disabled = !names.length;
+      btn.textContent = names.length ? t(mode === 'out' ? 'sibOut' : 'sibIn', { n: names.join('、') }) : t('sibNone');
+    };
+    const card = h('section', { class: 'card sib-card' },
+      h('h3', { style: 'margin:0 0 4px' }, '👨‍👩‍👧 ', t('sibTitle')),
+      h('ul', { class: 'list' }, sibs.map((x) => {
+        const cb = h('input', { type: 'checkbox', checked: !x.done, disabled: x.done, onchange: label });
+        if (!x.done) ticks.set(x.id, cb);
+        return h('li', {}, h('label', { class: 'row sib-row' + (x.done ? ' is-done' : '') }, cb,
+          h('div', { class: 'grow' }, h('b', {}, x.name), h('div', { class: 'muted small' }, x.class_name)),
+          x.done && h('span', { class: 'badge ok' }, '✓ ', t('alreadyDone'))));
+      })),
+      btn,
+      h('button', { type: 'button', class: 'linkbtn sib-skip', onclick: () => card.remove() }, t('sibSkip')));
+    btn.onclick = async () => {
+      const chosen = open.filter((x) => ticks.get(x.id).checked);
+      btn.disabled = true;
+      try {
+        await api('POST', '/api/attendance/mark', { mode, entries: chosen.map((x) => ({ student_id: x.id })) });
+        beep(true);
+        card.replaceWith(h('div', { class: 'result ok' }, h('div', { class: 'small' }, modeLabel(mode), ' · ', t('recordedOk')),
+          h('div', { class: 'name' }, '✓ ', chosen.map((x) => x.name).join('、'))));
+      } catch (e) { toast(e.message); btn.disabled = false; }
+    };
+    label();
+    result.append(card);
+  }
+
   // Manual check-in for students without their card.
   const students = await api('GET', '/api/students');
   const search = h('input', { type: 'search', placeholder: t('manualSearch'), oninput: () => renderMatches() });
@@ -89,7 +127,7 @@ VIEWS.scan = async (main) => {
       .slice(0, 8)
       .map((s) => h('li', { class: 'row' },
         h('div', { class: 'grow' }, s.name, h('div', { class: 'muted small' }, s.class_name, ' · ', s.student_no)),
-        h('button', { class: 'btn sm primary', onclick: () => { submit('/api/attendance/mark', { mode: scanMode, entries: [{ student_id: s.id }] }); search.value = ''; renderMatches(); window.scrollTo(0, 0); } }, modeLabel(scanMode))))));
+        h('button', { class: 'btn sm primary', onclick: () => { submit('/api/attendance/mark', { mode: scanMode, with_siblings: true, entries: [{ student_id: s.id }] }); search.value = ''; renderMatches(); window.scrollTo(0, 0); } }, modeLabel(scanMode))))));
   }
 
   main.replaceChildren(h('div', { class: 'stack' },

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	webpush "github.com/SherClockHolmes/webpush-go"
@@ -22,6 +23,9 @@ type Notifier struct {
 	subscriber string
 	client     *http.Client
 	loc        *time.Location // school time zone for stored timestamps
+
+	mu      sync.Mutex
+	pending map[string][]attEntry // "parentID/mode" → arrivals or departures waiting to be sent together
 }
 
 func (n *Notifier) nowStr() string {
@@ -58,22 +62,113 @@ func newNotifier(db *sql.DB, subscriber string) (*Notifier, error) {
 	return n, nil
 }
 
+// Arrivals and departures are held for a few seconds and sent per parent, so brothers and sisters
+// scanned together give one notification ("林小红、林小明 已到园") instead of several.
+const attendanceBatchDelay = 15 * time.Second
+
+type attEntry struct {
+	studentID int64
+	name, tm  string
+	late      bool
+}
+
 // notifyAttendance tells the student's parents about an arrival or departure. It runs in the
 // background so the scanner or roll call gets its answer immediately.
 func (n *Notifier) notifyAttendance(s Student, mode string, at time.Time, late bool) {
-	tm := at.Format("15:04")
-	var body string
-	if mode == modeIn {
-		statusZh, statusEn := "准时", "on time"
-		if late {
-			statusZh, statusEn = "迟到", "late"
-		}
-		body = fmt.Sprintf("%s 已于 %s 到园（%s）\n%s arrived at %s (%s)", s.Name, tm, statusZh, s.Name, tm, statusEn)
-	} else {
-		body = fmt.Sprintf("%s 已于 %s 离园\n%s left at %s", s.Name, tm, s.Name, tm)
+	rows, err := n.db.Query(`SELECT u.id FROM parent_students ps JOIN users u ON u.id = ps.parent_id
+		WHERE ps.student_id = ? AND u.disabled = 0`, s.ID)
+	if err != nil {
+		logError(err)
+		return
 	}
-	title := map[string]string{modeIn: "到园通知 / Arrived", modeOut: "离园通知 / Left school"}[mode]
-	n.notifyParents([]int64{s.ID}, title, func(string) string { return body }, "/#home", fmt.Sprintf("att-%s-%d", mode, s.ID))
+	var parents []int64
+	for rows.Next() {
+		var pid int64
+		if rows.Scan(&pid) == nil {
+			parents = append(parents, pid)
+		}
+	}
+	rows.Close()
+	e := attEntry{studentID: s.ID, name: s.Name, tm: at.Format("15:04"), late: late}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.pending == nil {
+		n.pending = map[string][]attEntry{}
+	}
+	for _, pid := range parents {
+		key := fmt.Sprintf("%d/%s", pid, mode)
+		if _, waiting := n.pending[key]; !waiting {
+			pid := pid
+			time.AfterFunc(attendanceBatchDelay, func() { n.flushAttendance(key, pid, mode) })
+		}
+		n.pending[key] = append(n.pending[key], e)
+	}
+}
+
+func (n *Notifier) flushAttendance(key string, parentID int64, mode string) {
+	n.mu.Lock()
+	list := n.pending[key]
+	delete(n.pending, key)
+	n.mu.Unlock()
+	if len(list) == 0 {
+		return
+	}
+	title, body := attendanceMessage(mode, list)
+	sid, tag := list[0].studentID, fmt.Sprintf("att-%s-%d", mode, list[0].studentID)
+	if len(list) > 1 {
+		sid, tag = 0, fmt.Sprintf("att-%s-family-%d", mode, parentID)
+	}
+	n.deliver(parentID, sid, title, body, "/#home", tag, "")
+}
+
+// attendanceMessage: one child gives the usual sentence; several children are listed together,
+// with one time when they all came (or left) at the same minute.
+func attendanceMessage(mode string, list []attEntry) (title, body string) {
+	title = map[string]string{modeIn: "到园通知 / Arrived", modeOut: "离园通知 / Left school"}[mode]
+	status := func(e attEntry) (string, string) {
+		if e.late {
+			return "迟到", "late"
+		}
+		return "准时", "on time"
+	}
+	if len(list) == 1 {
+		e := list[0]
+		if mode == modeIn {
+			zh, en := status(e)
+			return title, fmt.Sprintf("%s 已于 %s 到园（%s）\n%s arrived at %s (%s)", e.name, e.tm, zh, e.name, e.tm, en)
+		}
+		return title, fmt.Sprintf("%s 已于 %s 离园\n%s left at %s", e.name, e.tm, e.name, e.tm)
+	}
+	same := true // same minute and, for arrivals, all on time or all late
+	names := make([]string, len(list))
+	for i, e := range list {
+		names[i] = e.name
+		same = same && e.tm == list[0].tm && (mode == modeOut || e.late == list[0].late)
+	}
+	if same {
+		zhAll, enAll := strings.Join(names, "、"), strings.Join(names, ", ")
+		if mode == modeIn {
+			zh, en := status(list[0])
+			return title, fmt.Sprintf("%s 已于 %s 到园（%s）\n%s arrived at %s (%s)", zhAll, list[0].tm, zh, enAll, list[0].tm, en)
+		}
+		return title, fmt.Sprintf("%s 已于 %s 离园\n%s left at %s", zhAll, list[0].tm, enAll, list[0].tm)
+	}
+	var zh, en []string
+	for _, e := range list {
+		if mode == modeIn {
+			z, x := status(e)
+			zh = append(zh, fmt.Sprintf("%s %s（%s）", e.name, e.tm, z))
+			en = append(en, fmt.Sprintf("%s %s (%s)", e.name, e.tm, x))
+		} else {
+			zh = append(zh, e.name+" "+e.tm)
+			en = append(en, e.name+" "+e.tm)
+		}
+	}
+	verbZh, verbEn := "已到园", "arrived"
+	if mode == modeOut {
+		verbZh, verbEn = "已离园", "left school"
+	}
+	return title, strings.Join(zh, "、") + " " + verbZh + "\n" + strings.ToUpper(verbEn[:1]) + verbEn[1:] + ": " + strings.Join(en, ", ")
 }
 
 // notifyParents sends one push to each parent of the given students. body receives the names of

@@ -279,6 +279,14 @@ function openStudent(id) {
 
 // Which school this account belongs to: staff have one (or all, for the top-level admin);
 // a parent sees their children's school(s).
+// Brothers and sisters share a surname, so their avatars show the last character of the Chinese
+// name (林小华 → 华); names without Chinese characters use the first letter.
+function givenInitial(name) {
+  const zh = (name || '').match(/[\u3400-\u9fff]+/);
+  if (zh) return [...zh[0]].pop();
+  return ((name || '').trim()[0] || '?').toUpperCase();
+}
+
 function greeting() {
   const hour = Number(nowHHMM().slice(0, 2));
   return t(hour < 12 ? 'goodMorning' : hour < 18 ? 'goodAfternoon' : 'goodEvening');
@@ -566,12 +574,34 @@ VIEWS.home = async (main) => {
   ]);
   const records = await Promise.all(children.map((c) => api('GET', `/api/attendance/student/${c.id}`).catch(() => ({ records: [] }))));
   const out = [];
-  out.push(h('div', { class: 'muted small today-line' }, new Date(todayStr() + 'T00:00:00').toLocaleDateString(lang === 'zh' ? 'zh-CN' : 'en-MY', { weekday: 'long', month: 'long', day: 'numeric' })));
+  const dateText = new Date(todayStr() + 'T00:00:00').toLocaleDateString(lang === 'zh' ? 'zh-CN' : 'en-MY', { weekday: 'long', month: 'long', day: 'numeric' });
+  if (children.length < 2) out.push(h('div', { class: 'muted small today-line' }, dateText));
 
   if (!children.length) out.push(h('div', { class: 'card empty' }, t('noChildren')));
 
-  // One big card per child: today's status first, in plain words.
-  children.forEach((c, i) => {
+  // Several children: one "today" card with a line each, so the family is seen at a glance.
+  if (children.length > 1) {
+    const manySchools = new Set(children.map((c) => c.campus_id)).size > 1;
+    out.push(h('section', { class: 'card kid-card family-card' },
+      h('div', { class: 'family-head' }, h('b', {}, t('todayTitle')), h('span', { class: 'muted small' }, dateText)),
+      h('ul', { class: 'family-list' }, children.map((c, i) => {
+        const rec = records[i].records.find((r) => r.date === todayStr());
+        const inT = rec && hhmm(rec.checkin_at), outT = rec && hhmm(rec.checkout_at);
+        let chip;
+        if (outT) chip = h('span', { class: 'chip out' }, '🏠 ', t('chipOut', { t: outT }));
+        else if (inT) chip = h('span', { class: 'chip ' + (rec.late ? 'late' : 'in') }, rec.late ? '⏰ ' : '✅ ', t(rec.late ? 'chipLate' : 'chipIn', { t: inT }));
+        else chip = h('span', { class: 'chip none' }, '🌤️ ', t('chipNone'));
+        return h('li', {}, h('button', { class: 'family-row', onclick: () => openStudent(c.id) },
+          h('div', { class: 'avatar sm c' + (i % 4), 'aria-hidden': 'true' }, givenInitial(c.name)),
+          h('div', { class: 'grow', style: 'min-width:0' }, h('div', { class: 'f-name' }, c.name),
+            h('div', { class: 'muted small' }, c.class_name || t('noClass'), manySchools ? ' · ' + c.campus_name : ''),
+            chip),
+          h('span', { class: 'f-go', 'aria-hidden': 'true' }, '›')));
+      }))));
+  }
+
+  // One child: a big card with today's status in plain words.
+  if (children.length === 1) children.forEach((c, i) => {
     const rec = records[i].records.find((r) => r.date === todayStr());
     const inT = rec && hhmm(rec.checkin_at), outT = rec && hhmm(rec.checkout_at);
     let pill;
