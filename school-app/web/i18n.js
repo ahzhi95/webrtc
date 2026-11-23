@@ -3,7 +3,7 @@ window.I18N = {
   zh: {
     appName: '校园通',
     appSub: '到校打卡 · 学校通知 · 学费单据',
-    username: '用户名', password: '密码', login: '登录', logout: '退出登录',
+    username: '用户名', password: '密码', login: '登录', logout: '退出登录', logoutShort: '退出', logoutConfirm: '确定要退出登录吗？',
     role_admin: '管理员', role_teacher: '老师', role_parent: '家长',
     tab_home: '首页', tab_scan: '扫码打卡', tab_attendance: '考勤', tab_notices: '通知',
     tab_receipts: '缴费单据', tab_manage: '管理', tab_me: '我的',
@@ -87,7 +87,7 @@ window.I18N = {
   en: {
     appName: 'School App',
     appSub: 'Check-in · Announcements · Fee receipts',
-    username: 'Username', password: 'Password', login: 'Log in', logout: 'Log out',
+    username: 'Username', password: 'Password', login: 'Log in', logout: 'Log out', logoutShort: 'Log out', logoutConfirm: 'Log out now?',
     role_admin: 'Admin', role_teacher: 'Teacher', role_parent: 'Parent',
     tab_home: 'Home', tab_scan: 'Scan', tab_attendance: 'Attendance', tab_notices: 'Notices',
     tab_receipts: 'Receipts', tab_manage: 'Manage', tab_me: 'Me',

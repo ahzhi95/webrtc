@@ -187,7 +187,8 @@ function render() {
     h('header', { class: 'topbar' },
       h('h1', {}, t('appName')),
       h('span', { class: 'who' }, state.me.user.name),
-      langButton()),
+      langButton(),
+      h('button', { class: 'lang-btn', onclick: () => { if (confirm(t('logoutConfirm'))) logout(); } }, t('logoutShort'))),
     main,
     h('nav', { class: 'tabs' }, tabs.map(([k, ic]) =>
       h('button', { class: state.tab === k ? 'on' : null, 'aria-current': state.tab === k ? 'page' : null, onclick: () => go(k) },
