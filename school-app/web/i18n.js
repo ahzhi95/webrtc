@@ -182,6 +182,10 @@ window.I18N = {
     draftText: '这是系统提供的草稿，请审阅后修改', docHint: '以“# ”开头的一行是标题，以“- ”开头是列表。清空全部文字会恢复为系统草稿。',
     hours: '上课时间', hoursPh: '例如：星期一至五 7:30am – 6:00pm', schoolAbout: '学校介绍', aboutPh: '简单介绍学校，会显示在家长的“学校资料”页面',
     campusInfoHint: 'WhatsApp、上课时间和学校介绍会显示在家长的“关于 → 学校资料与联系方式”。',
+    // photo tags
+    photoTag: '场景', photoDay: '拍摄日期', allTags: '全部场景',
+    tag_class: '上课', tag_outdoor: '户外活动', tag_art: '美术手工', tag_music: '音乐舞蹈', tag_meal: '用餐 / 点心',
+    tag_festival: '节日活动', tag_birthday: '生日会', tag_trip: '校外教学', tag_other: '其他',
     // errors from server
     'err:wrong username or password': '用户名或密码错误',
     'err:too many attempts, try again in 15 minutes': '尝试次数太多，请 15 分钟后再试',
@@ -339,6 +343,9 @@ window.I18N = {
     draftText: 'Draft text provided by the app; please review and edit', docHint: 'A line starting with "# " is a heading, "- " a list item. Clearing all text restores the draft.',
     hours: 'Opening hours', hoursPh: 'e.g. Mon–Fri 7:30am – 6:00pm', schoolAbout: 'About the school', aboutPh: 'A short introduction shown to parents',
     campusInfoHint: 'WhatsApp, opening hours and the introduction are shown to parents under About → School details.',
+    photoTag: 'Scene', photoDay: 'Date taken', allTags: 'All scenes',
+    tag_class: 'Class', tag_outdoor: 'Outdoor', tag_art: 'Art & craft', tag_music: 'Music & dance', tag_meal: 'Meals & snacks',
+    tag_festival: 'Festival', tag_birthday: 'Birthday', tag_trip: 'Field trip', tag_other: 'Other',
     'err:network': 'Network error, please try again',
   },
 };

@@ -18,6 +18,13 @@ import (
 	_ "golang.org/x/image/webp" // register WebP decoder
 )
 
+// Scene tags teachers choose when uploading (场景标签).
+var photoTags = map[string]bool{"class": true, "outdoor": true, "art": true, "music": true, "meal": true,
+	"festival": true, "birthday": true, "trip": true, "other": true}
+
+// photoDay: the day a photo was taken (older photos without one use the upload day).
+const photoDay = `COALESCE(NULLIF(p.taken_on, ''), substr(p.created_at, 1, 10))`
+
 const (
 	maxPhotosPerUpload = 30
 	maxPhotoBytes      = 15 << 20 // per original file
@@ -108,6 +115,19 @@ func (a *App) handleUploadPhotos(w http.ResponseWriter, r *http.Request) {
 	if len(caption) > 500 {
 		caption = caption[:500]
 	}
+	tag := r.FormValue("tag")
+	if !photoTags[tag] {
+		tag = "other"
+	}
+	takenOn := a.now().Format("2006-01-02")
+	if v := r.FormValue("taken_on"); v != "" {
+		t, err := time.ParseInLocation("2006-01-02", v, a.loc)
+		if err != nil || t.After(a.now()) {
+			httpError(w, http.StatusBadRequest, "invalid date")
+			return
+		}
+		takenOn = v
+	}
 	if err := os.MkdirAll(a.photoDir(), 0o750); err != nil {
 		serverError(w, err)
 		return
@@ -160,7 +180,8 @@ func (a *App) handleUploadPhotos(w http.ResponseWriter, r *http.Request) {
 			}
 			written = append(written, p)
 		}
-		res, err := tx.Exec(`INSERT INTO photos (file_name, caption, uploaded_by, created_at) VALUES (?,?,?,?)`, name, caption, u.ID, now)
+		res, err := tx.Exec(`INSERT INTO photos (file_name, caption, uploaded_by, created_at, tag, taken_on) VALUES (?,?,?,?,?,?)`,
+			name, caption, u.ID, now, tag, takenOn)
 		if err != nil {
 			cleanup()
 			serverError(w, err)
@@ -194,6 +215,8 @@ type PhotoStudent struct {
 type Photo struct {
 	ID         int64          `json:"id"`
 	Caption    string         `json:"caption"`
+	Tag        string         `json:"tag"`
+	TakenOn    string         `json:"taken_on"`
 	UploadedBy string         `json:"uploaded_by"`
 	UploaderID int64          `json:"uploader_id"`
 	CreatedAt  string         `json:"created_at"`
@@ -219,6 +242,16 @@ func (a *App) handleListPhotos(w http.ResponseWriter, r *http.Request) {
 		where = append(where, `p.id IN (SELECT photo_id FROM photo_students WHERE student_id = ?)`)
 		args = append(args, sid)
 	}
+	if tag := q.Get("tag"); photoTags[tag] {
+		where, args = append(where, "p.tag = ?"), append(args, tag)
+	}
+	for _, d := range []struct{ key, op string }{{"from", ">="}, {"to", "<="}} {
+		if v := q.Get(d.key); v != "" {
+			if _, err := time.Parse("2006-01-02", v); err == nil {
+				where, args = append(where, photoDay+" "+d.op+" ?"), append(args, v)
+			}
+		}
+	}
 	if cid := q.Get("class_id"); cid != "" && u.Role != "parent" {
 		where = append(where, `p.id IN (SELECT ps.photo_id FROM photo_students ps JOIN students s ON s.id = ps.student_id WHERE s.class_id = ?)`)
 		args = append(args, cid)
@@ -234,9 +267,10 @@ func (a *App) handleListPhotos(w http.ResponseWriter, r *http.Request) {
 	}
 	args = append(args, before)
 
-	rows, err := a.db.Query(`SELECT p.id, p.caption, COALESCE(u.name,''), COALESCE(p.uploaded_by,0), p.created_at FROM photos p
+	// Newest day first (the day the photo was taken), then newest upload.
+	rows, err := a.db.Query(`SELECT p.id, p.caption, p.tag, `+photoDay+`, COALESCE(u.name,''), COALESCE(p.uploaded_by,0), p.created_at FROM photos p
 		LEFT JOIN users u ON u.id = p.uploaded_by WHERE `+strings.Join(where, " AND ")+
-		fmt.Sprintf(` ORDER BY p.id DESC LIMIT %d`, limit), args...)
+		fmt.Sprintf(` ORDER BY `+photoDay+` DESC, p.id DESC LIMIT %d`, limit), args...)
 	if err != nil {
 		serverError(w, err)
 		return
@@ -245,7 +279,7 @@ func (a *App) handleListPhotos(w http.ResponseWriter, r *http.Request) {
 	index := map[int64]int{}
 	for rows.Next() {
 		var p Photo
-		if err := rows.Scan(&p.ID, &p.Caption, &p.UploadedBy, &p.UploaderID, &p.CreatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Caption, &p.Tag, &p.TakenOn, &p.UploadedBy, &p.UploaderID, &p.CreatedAt); err != nil {
 			rows.Close()
 			serverError(w, err)
 			return
@@ -263,7 +297,11 @@ func (a *App) handleListPhotos(w http.ResponseWriter, r *http.Request) {
 	// Attach the children in each photo. A parent only sees the names of their own children.
 	tagQ := `SELECT ps.photo_id, s.id, s.name FROM photo_students ps JOIN students s ON s.id = ps.student_id
 		WHERE ps.photo_id BETWEEN ? AND ?`
-	tagArgs := []any{list[len(list)-1].ID, list[0].ID}
+	minID, maxID := list[0].ID, list[0].ID
+	for _, p := range list {
+		minID, maxID = min(minID, p.ID), max(maxID, p.ID)
+	}
+	tagArgs := []any{minID, maxID}
 	if u.Role == "parent" {
 		tagQ += ` AND s.id IN (SELECT student_id FROM parent_students WHERE parent_id = ?)`
 		tagArgs = append(tagArgs, u.ID)

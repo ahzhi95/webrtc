@@ -320,6 +320,8 @@ func openDB(path string) (*sql.DB, error) {
 		`ALTER TABLE campuses ADD COLUMN about TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE campuses ADD COLUMN whatsapp TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE campuses ADD COLUMN hours TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE photos ADD COLUMN tag TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE photos ADD COLUMN taken_on TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE fee_items ADD COLUMN reminded_at TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE fee_items ADD COLUMN remind_count INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE announcements ADD COLUMN publish_at TEXT NOT NULL DEFAULT ''`,

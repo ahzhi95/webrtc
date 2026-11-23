@@ -34,6 +34,7 @@ function openLightbox(list, index, onChange) {
     img.src = photoSrc(p);
     const canDelete = state.me.user.role === 'admin' || (state.me.user.role === 'teacher' && p.uploader_id === state.me.user.id);
     info.replaceChildren(
+      h('div', { class: 'row', style: 'margin-bottom:6px' }, p.tag && h('span', { class: 'chip', style: 'padding-right:10px' }, tagLabel(p.tag)), h('b', {}, p.taken_on)),
       p.caption && h('div', { class: 'lb-cap' }, p.caption),
       h('div', {}, p.students.map((s) => h('span', { class: 'chip', style: 'padding-right:10px' }, s.name))),
       h('div', { class: 'small', style: 'opacity:.75' }, dateTime(p.created_at), ' · ', p.uploaded_by),
@@ -55,7 +56,23 @@ function openLightbox(list, index, onChange) {
   show();
 }
 
-const photoFilter = { classId: '', studentId: '' };
+const PHOTO_TAGS = ['class', 'outdoor', 'art', 'music', 'meal', 'festival', 'birthday', 'trip', 'other'];
+const TAG_ICONS = { class: '📚', outdoor: '🌳', art: '🎨', music: '🎵', meal: '🍱', festival: '🏮', birthday: '🎂', trip: '🚌', other: '📷' };
+const tagLabel = (k) => (TAG_ICONS[k] || '') + ' ' + t('tag_' + k);
+
+// Photos grouped under the day they were taken.
+function photoDays(list, onChange) {
+  const days = [];
+  for (const p of list) {
+    const last = days[days.length - 1];
+    if (last && last.day === p.taken_on) last.items.push(p); else days.push({ day: p.taken_on, items: [p] });
+  }
+  return h('div', { class: 'stack' }, days.map((d) => h('div', {},
+    h('div', { class: 'day-head' }, d.day, ' ', h('span', { class: 'muted small' }, [...new Set(d.items.map((p) => p.tag).filter(Boolean))].map(tagLabel).join(' · '))),
+    photoGrid(d.items, onChange))));
+}
+
+const photoFilter = { classId: '', studentId: '', tag: '', day: '' };
 VIEWS.photos = async (main) => {
   const staff = state.me.user.role !== 'parent';
   const rerender = () => VIEWS.photos(main);
@@ -81,11 +98,18 @@ VIEWS.photos = async (main) => {
         h('button', { class: String(c.id) === photoFilter.studentId ? 'on' : null, onclick: () => { photoFilter.studentId = String(c.id); rerender(); } }, c.name))));
     }
   }
+  parts.push(h('div', { class: 'row' },
+    h('select', { class: 'grow', 'aria-label': t('photoTag'), onchange: (e) => { photoFilter.tag = e.target.value; rerender(); } },
+      h('option', { value: '' }, t('allTags')), PHOTO_TAGS.map((k) => h('option', { value: k, selected: photoFilter.tag === k }, tagLabel(k)))),
+    h('input', { type: 'date', class: 'grow', 'aria-label': t('photoDay'), value: photoFilter.day, max: todayStr(), onchange: (e) => { photoFilter.day = e.target.value; rerender(); } }),
+    (photoFilter.tag || photoFilter.day) && h('button', { class: 'btn sm', onclick: () => { photoFilter.tag = ''; photoFilter.day = ''; rerender(); } }, t('clearSel'))));
   const q = new URLSearchParams();
+  if (photoFilter.tag) q.set('tag', photoFilter.tag);
+  if (photoFilter.day) { q.set('from', photoFilter.day); q.set('to', photoFilter.day); }
   if (photoFilter.studentId) q.set('student_id', photoFilter.studentId);
   else if (staff && photoFilter.classId) q.set('class_id', photoFilter.classId);
   const list = await api('GET', '/api/photos?' + q);
-  parts.push(list.length ? photoGrid(list, rerender) : h('div', { class: 'card empty' }, t('noPhotos')));
+  parts.push(list.length ? photoDays(list, rerender) : h('div', { class: 'card empty' }, t('noPhotos')));
   if (!staff) parts.push(h('p', { class: 'small muted', style: 'text-align:center' }, '🔒 ', t('photoPrivacy')));
   main.replaceChildren(h('div', { class: 'stack' }, parts));
 };
@@ -105,6 +129,8 @@ function photoUploadCard(classes, students, done) {
   const visibleIds = () => students.filter((s) => !cls || String(s.class_id) === cls).map((s) => s.id);
   const files = h('input', { type: 'file', accept: 'image/*', multiple: true, required: true });
   const caption = h('input', { type: 'text', maxlength: 200, placeholder: t('captionPh') });
+  const tag = h('select', {}, PHOTO_TAGS.map((k) => h('option', { value: k }, tagLabel(k))));
+  const day = h('input', { type: 'date', value: todayStr(), max: todayStr() });
   const status = h('div', { class: 'small muted', 'aria-live': 'polite' });
   const btn = h('button', { class: 'btn primary block', type: 'submit' }, t('upload'));
   renderList();
@@ -118,6 +144,8 @@ function photoUploadCard(classes, students, done) {
       const fd = new FormData();
       picked.forEach((id) => fd.append('student_id', id));
       fd.set('caption', caption.value);
+      fd.set('tag', tag.value);
+      fd.set('taken_on', day.value);
       for (let k = 0; k < chosen.length; k++) {
         status.textContent = t('processing', { n: k + 1, total: chosen.length });
         fd.append('photo', await shrinkImage(chosen[k]), `photo${k}.jpg`);
@@ -136,6 +164,7 @@ function photoUploadCard(classes, students, done) {
         h('button', { type: 'button', class: 'btn sm', onclick: () => { visibleIds().forEach((id) => picked.add(id)); renderList(); } }, t('selectAll')),
         h('button', { type: 'button', class: 'btn sm', onclick: () => { picked.clear(); renderList(); } }, t('clearSel'))),
       listBox),
+    h('div', { class: 'row' }, h('div', { class: 'grow' }, field(t('photoTag'), tag)), h('div', { class: 'grow' }, field(t('photoDay'), day))),
     h('label', { class: 'f' }, t('caption'), caption),
     h('p', { class: 'small muted' }, '🔒 ', t('photoPrivacyStaff')),
     status, btn));
