@@ -50,37 +50,57 @@ func newNotifier(db *sql.DB, subscriber string) (*Notifier, error) {
 	return n, nil
 }
 
-// notifyCheckin tells every parent of the student that the child arrived. It runs in the
-// background so the scanner gets its answer immediately.
-func (n *Notifier) notifyCheckin(s Student, checkinAt string, late bool) {
-	rows, err := n.db.Query(`SELECT u.id FROM parent_students ps JOIN users u ON u.id = ps.parent_id
-		WHERE ps.student_id = ? AND u.notify_push = 1`, s.ID)
-	if err != nil {
-		logError(err)
-		return
-	}
-	var parents []int64
-	for rows.Next() {
-		var id int64
-		if rows.Scan(&id) == nil {
-			parents = append(parents, id)
+// notifyAttendance tells the student's parents about an arrival or departure. It runs in the
+// background so the scanner or roll call gets its answer immediately.
+func (n *Notifier) notifyAttendance(s Student, mode string, at time.Time, late bool) {
+	tm := at.Format("15:04")
+	var body string
+	if mode == modeIn {
+		statusZh, statusEn := "准时", "on time"
+		if late {
+			statusZh, statusEn = "迟到", "late"
 		}
+		body = fmt.Sprintf("%s 已于 %s 到园（%s）\n%s arrived at %s (%s)", s.Name, tm, statusZh, s.Name, tm, statusEn)
+	} else {
+		body = fmt.Sprintf("%s 已于 %s 离园\n%s left at %s", s.Name, tm, s.Name, tm)
 	}
-	rows.Close()
+	title := map[string]string{modeIn: "到园通知 / Arrived", modeOut: "离园通知 / Left school"}[mode]
+	n.notifyParents([]int64{s.ID}, title, func(string) string { return body }, "/#home", fmt.Sprintf("att-%s-%d", mode, s.ID))
+}
 
-	tm := hhmm(checkinAt)
-	statusZh, statusEn := "准时", "on time"
-	if late {
-		statusZh, statusEn = "迟到", "late"
+// notifyParents sends one push to each parent of the given students. body receives the names of
+// that parent's own children among them, so nobody learns about other families.
+func (n *Notifier) notifyParents(studentIDs []int64, title string, body func(childNames string) string, url, tag string) {
+	names := map[int64][]string{}
+	var order []int64
+	firstStudent := map[int64]int64{}
+	for _, sid := range studentIDs {
+		rows, err := n.db.Query(`SELECT u.id, s.name FROM parent_students ps JOIN users u ON u.id = ps.parent_id
+			JOIN students s ON s.id = ps.student_id WHERE ps.student_id = ? AND u.notify_push = 1 AND u.disabled = 0`, sid)
+		if err != nil {
+			logError(err)
+			return
+		}
+		for rows.Next() {
+			var pid int64
+			var name string
+			if rows.Scan(&pid, &name) == nil {
+				if _, seen := names[pid]; !seen {
+					order = append(order, pid)
+					firstStudent[pid] = sid
+				}
+				names[pid] = append(names[pid], name)
+			}
+		}
+		rows.Close()
 	}
-	payload, _ := json.Marshal(map[string]string{
-		"title": "到校通知 / Arrived at school",
-		"body":  fmt.Sprintf("%s 已于 %s 到校（%s）\n%s arrived at %s (%s)", s.Name, tm, statusZh, s.Name, tm, statusEn),
-		"url":   "/#home",
-		"tag":   fmt.Sprintf("checkin-%d", s.ID),
-	})
-	for _, pid := range parents {
-		n.sendPushToUser(pid, s.ID, payload)
+	for _, pid := range order {
+		payload, _ := json.Marshal(map[string]string{"title": title, "body": body(strings.Join(names[pid], "、")), "url": url, "tag": tag})
+		sid := firstStudent[pid]
+		if len(studentIDs) > 1 {
+			sid = 0
+		}
+		n.sendPushToUser(pid, sid, payload)
 	}
 }
 
@@ -217,7 +237,8 @@ func (a *App) handlePushTest(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleNotificationLog(w http.ResponseWriter, r *http.Request) {
 	rows, err := a.db.Query(`SELECT l.id, COALESCE(u.name,''), COALESCE(s.name,''), l.ok, l.detail, l.created_at
 		FROM notification_log l LEFT JOIN users u ON u.id = l.user_id LEFT JOIN students s ON s.id = l.student_id
-		WHERE l.channel = 'push' ORDER BY l.id DESC LIMIT 200`)
+		WHERE l.channel = 'push' AND (? = 0 OR l.student_id IN (SELECT st.id FROM students st JOIN classes c ON c.id = st.class_id WHERE c.campus_id = ?))
+		ORDER BY l.id DESC LIMIT 200`, scope(currentUser(r)), scope(currentUser(r)))
 	if err != nil {
 		serverError(w, err)
 		return

@@ -202,6 +202,41 @@ details.add[open] > summary { margin-bottom: 12px; }
 .lb-prev { left: 0; border-radius: 0 8px 8px 0; }
 .lb-next { right: 0; border-radius: 8px 0 0 8px; }
 
+/* ---------- phase 1 additions ---------- */
+.campus-tag { font-size: 11px; background: rgba(255,255,255,.18); border-radius: 999px; padding: 2px 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 30vw; }
+.bad-text { color: var(--bad); }
+.warn-text { color: var(--warn); }
+.stats4 { grid-template-columns: repeat(4, 1fr); }
+.stats4 .stat b { font-size: 20px; }
+.linkish { background: none; border: 0; padding: 0; text-align: left; cursor: pointer; color: inherit; display: flex; flex-direction: column; min-width: 0; }
+.linkish:hover .att-name, .linkish:hover b { text-decoration: underline; }
+.att-row { display: flex; align-items: center; gap: 8px; }
+.att-row.picked { background: var(--primary-soft); margin: 0 -16px; padding-left: 16px; padding-right: 16px; }
+.att-name { font-weight: 550; }
+.att-done, .att-pick { display: flex; align-items: center; gap: 6px; flex: none; }
+.att-time { font-variant-numeric: tabular-nums; font-weight: 600; }
+.att-clock { width: 124px !important; min-height: 38px !important; padding: 6px 8px !important; }
+.att-check { width: 26px; height: 26px; accent-color: var(--primary); }
+.sticky-submit { position: sticky; bottom: calc(72px + env(safe-area-inset-bottom)); z-index: 4; }
+.sticky-submit .btn { box-shadow: 0 4px 14px rgba(0,0,0,.18); min-height: 50px; font-size: 17px; }
+.kv { display: flex; gap: 12px; padding: 4px 0; }
+.kv > span:first-child { flex: none; width: 96px; }
+.alert { background: var(--bad-soft); color: var(--bad); border-radius: 10px; padding: 8px 12px; margin-bottom: 8px; font-weight: 600; }
+.edit-note { color: var(--warn); background: var(--warn-soft); border-radius: 8px; padding: 4px 8px; margin-top: 4px; }
+.progress { height: 8px; background: var(--surface-2); border-radius: 999px; overflow: hidden; margin: 10px 0 6px; }
+.progress > div { height: 100%; background: var(--ok); border-radius: 999px; }
+.fee-row { cursor: pointer; }
+.fee-row input[type=checkbox] { width: 22px; height: 22px; accent-color: var(--primary); flex: none; }
+.fee-spacer { width: 22px; flex: none; }
+.paybox { margin-top: 12px; padding: 12px; border: 1px solid var(--primary); border-radius: 12px; background: var(--primary-soft); }
+.inline-select { width: auto !important; min-height: 32px !important; padding: 2px 8px !important; margin-top: 4px; }
+li.is-disabled { opacity: .6; }
+.dialog-back { position: fixed; inset: 0; z-index: 40; background: rgba(0,0,0,.45); display: flex; align-items: flex-end; justify-content: center; }
+.dialog { background: var(--surface); color: var(--text); width: 100%; max-width: 560px; max-height: 92vh; overflow-y: auto; border-radius: 16px 16px 0 0;
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 12px; box-shadow: 0 -4px 24px rgba(0,0,0,.2); }
+@media (min-width: 600px) { .dialog-back { align-items: center; } .dialog { border-radius: 16px; } }
+.dialog-body { display: flex; flex-direction: column; }
+
 /* ---------- QR cards (print) ---------- */
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
 .qrcard { background: #fff; color: #111; border: 1px dashed #999; border-radius: 10px; padding: 10px; text-align: center; break-inside: avoid; }

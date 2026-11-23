@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"image"
 	"image/jpeg"
@@ -91,8 +90,7 @@ func (a *App) handleUploadPhotos(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, id := range studentIDs {
-		var one int
-		if a.db.QueryRow(`SELECT 1 FROM students WHERE id = ?`, id).Scan(&one) != nil {
+		if !a.canAccessStudent(currentUser(r), id) {
 			httpError(w, http.StatusBadRequest, "student not found")
 			return
 		}
@@ -212,6 +210,11 @@ func (a *App) handleListPhotos(w http.ResponseWriter, r *http.Request) {
 			JOIN parent_students par ON par.student_id = ps.student_id WHERE par.parent_id = ?)`)
 		args = append(args, u.ID)
 	}
+	if s := scope(u); s != 0 {
+		where = append(where, `p.id IN (SELECT ps.photo_id FROM photo_students ps JOIN students st ON st.id = ps.student_id
+			JOIN classes c ON c.id = st.class_id WHERE c.campus_id = ?)`)
+		args = append(args, s)
+	}
 	if sid := q.Get("student_id"); sid != "" {
 		where = append(where, `p.id IN (SELECT photo_id FROM photo_students WHERE student_id = ?)`)
 		args = append(args, sid)
@@ -288,7 +291,12 @@ func (a *App) handleListPhotos(w http.ResponseWriter, r *http.Request) {
 // canSeePhoto: staff see every photo; a parent only photos that include their child.
 func (a *App) canSeePhoto(u *User, photoID int64) bool {
 	if u.Role != "parent" {
-		return true
+		if scope(u) == 0 {
+			return true
+		}
+		var one int
+		return a.db.QueryRow(`SELECT 1 FROM photo_students ps JOIN students st ON st.id = ps.student_id
+			JOIN classes c ON c.id = st.class_id WHERE ps.photo_id = ? AND c.campus_id = ? LIMIT 1`, photoID, scope(u)).Scan(&one) == nil
 	}
 	var one int
 	return a.db.QueryRow(`SELECT 1 FROM photo_students ps JOIN parent_students par ON par.student_id = ps.student_id
@@ -344,7 +352,7 @@ func (a *App) handleDeletePhoto(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	if u.Role != "admin" && uploader != u.ID {
+	if (u.Role != "admin" && uploader != u.ID) || !a.canSeePhoto(u, id) {
 		httpError(w, http.StatusForbidden, "permission denied")
 		return
 	}
@@ -359,41 +367,9 @@ func (a *App) handleDeletePhoto(w http.ResponseWriter, r *http.Request) {
 
 // ---------- notification ----------
 
-// notifyPhotos sends one push per parent: "New photos of <child>".
+// notifyPhotos sends one push per parent: "New photos of <their child>".
 func (n *Notifier) notifyPhotos(studentIDs []int64, count int) {
-	type target struct {
-		names []string
-	}
-	parents := map[int64]*target{}
-	var order []int64
-	for _, sid := range studentIDs {
-		rows, err := n.db.Query(`SELECT u.id, s.name FROM parent_students ps JOIN users u ON u.id = ps.parent_id
-			JOIN students s ON s.id = ps.student_id WHERE ps.student_id = ? AND u.notify_push = 1`, sid)
-		if err != nil {
-			logError(err)
-			return
-		}
-		for rows.Next() {
-			var pid int64
-			var name string
-			if rows.Scan(&pid, &name) == nil {
-				if parents[pid] == nil {
-					parents[pid] = &target{}
-					order = append(order, pid)
-				}
-				parents[pid].names = append(parents[pid].names, name)
-			}
-		}
-		rows.Close()
-	}
-	for _, pid := range order {
-		names := strings.Join(parents[pid].names, "、")
-		payload, _ := json.Marshal(map[string]string{
-			"title": "新照片 / New photos",
-			"body":  fmt.Sprintf("老师上传了 %d 张 %s 的照片\n%d new photo(s) of %s", count, names, count, names),
-			"url":   "/#photos",
-			"tag":   "photos",
-		})
-		n.sendPushToUser(pid, 0, payload)
-	}
+	n.notifyParents(studentIDs, "新照片 / New photos", func(names string) string {
+		return fmt.Sprintf("老师上传了 %d 张 %s 的照片\n%d new photo(s) of %s", count, names, count, names)
+	}, "/#photos", "photos")
 }

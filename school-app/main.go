@@ -105,25 +105,35 @@ func (a *App) routes() http.Handler {
 	mux.Handle("GET /api/me", a.auth(a.handleMe))
 	mux.Handle("POST /api/me/password", a.auth(a.handleChangePassword))
 
-	// School setup (admin)
+	// School setup
+	mux.Handle("GET /api/campuses", a.auth(a.handleListCampuses, "admin", "teacher"))
+	mux.Handle("POST /api/campuses", a.auth(a.handleSaveCampus, "admin"))
+	mux.Handle("PUT /api/campuses/{id}", a.auth(a.handleSaveCampus, "admin"))
+	mux.Handle("DELETE /api/campuses/{id}", a.auth(a.handleDeleteCampus, "admin"))
 	mux.Handle("GET /api/classes", a.auth(a.handleListClasses, "admin", "teacher"))
-	mux.Handle("POST /api/classes", a.auth(a.handleCreateClass, "admin"))
+	mux.Handle("POST /api/classes", a.auth(a.handleSaveClass, "admin"))
+	mux.Handle("PUT /api/classes/{id}", a.auth(a.handleSaveClass, "admin"))
 	mux.Handle("DELETE /api/classes/{id}", a.auth(a.handleDeleteClass, "admin"))
 	mux.Handle("GET /api/users", a.auth(a.handleListUsers, "admin"))
 	mux.Handle("POST /api/users", a.auth(a.handleCreateUser, "admin"))
+	mux.Handle("PUT /api/users/{id}", a.auth(a.handleUpdateUser, "admin"))
+	mux.Handle("POST /api/users/{id}/disabled", a.auth(a.handleSetDisabled, "admin"))
 	mux.Handle("DELETE /api/users/{id}", a.auth(a.handleDeleteUser, "admin"))
 	mux.Handle("POST /api/users/{id}/password", a.auth(a.handleResetPassword, "admin"))
 	mux.Handle("GET /api/students", a.auth(a.handleListStudents, "admin", "teacher"))
-	mux.Handle("POST /api/students", a.auth(a.handleCreateStudent, "admin"))
+	mux.Handle("POST /api/students", a.auth(a.handleSaveStudent, "admin"))
+	mux.Handle("GET /api/students/{id}", a.auth(a.handleStudentDetail))
+	mux.Handle("PUT /api/students/{id}", a.auth(a.handleSaveStudent, "admin"))
 	mux.Handle("DELETE /api/students/{id}", a.auth(a.handleDeleteStudent, "admin"))
 	mux.Handle("POST /api/students/{id}/parents", a.auth(a.handleLinkParent, "admin"))
 	mux.Handle("DELETE /api/students/{id}/parents/{pid}", a.auth(a.handleUnlinkParent, "admin"))
 	mux.Handle("POST /api/students/{id}/qr/reset", a.auth(a.handleResetQR, "admin"))
 	mux.Handle("GET /api/students/{id}/qr.png", a.auth(a.handleStudentQR, "admin", "teacher"))
 
-	// Attendance
+	// Arrival / departure
 	mux.Handle("POST /api/attendance/scan", a.auth(a.handleScan, "admin", "teacher"))
-	mux.Handle("POST /api/attendance/manual", a.auth(a.handleManualCheckin, "admin", "teacher"))
+	mux.Handle("POST /api/attendance/mark", a.auth(a.handleMark, "admin", "teacher"))
+	mux.Handle("PUT /api/attendance/{id}/{date}", a.auth(a.handleEditAttendance, "admin", "teacher"))
 	mux.Handle("GET /api/attendance", a.auth(a.handleDailyAttendance, "admin", "teacher"))
 	mux.Handle("GET /api/attendance/student/{id}", a.auth(a.handleStudentAttendance))
 
@@ -131,6 +141,15 @@ func (a *App) routes() http.Handler {
 	mux.Handle("GET /api/announcements", a.auth(a.handleListAnnouncements))
 	mux.Handle("POST /api/announcements", a.auth(a.handleCreateAnnouncement, "admin", "teacher"))
 	mux.Handle("DELETE /api/announcements/{id}", a.auth(a.handleDeleteAnnouncement, "admin", "teacher"))
+
+	// Fees
+	mux.Handle("GET /api/fee-items", a.auth(a.handleListFeeItems, "admin"))
+	mux.Handle("POST /api/fee-items", a.auth(a.handleCreateFeeItem, "admin"))
+	mux.Handle("PUT /api/fee-items/{id}", a.auth(a.handleUpdateFeeItem, "admin"))
+	mux.Handle("DELETE /api/fee-items/{id}", a.auth(a.handleDeleteFeeItem, "admin"))
+	mux.Handle("GET /api/fee-items/{id}/students", a.auth(a.handleFeeItemStudents, "admin"))
+	mux.Handle("PUT /api/student-fees/{id}", a.auth(a.handleUpdateStudentFee, "admin"))
+	mux.Handle("GET /api/fees", a.auth(a.handleListFees, "admin", "parent"))
 
 	// Notifications
 	mux.Handle("GET /api/push/key", a.auth(a.handlePushKey))

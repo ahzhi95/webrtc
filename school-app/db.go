@@ -123,6 +123,56 @@ CREATE TABLE IF NOT EXISTS photo_students (
 );
 CREATE INDEX IF NOT EXISTS idx_photo_students_student ON photo_students(student_id);
 
+CREATE TABLE IF NOT EXISTS campuses (
+	id   INTEGER PRIMARY KEY,
+	name TEXT NOT NULL UNIQUE
+);
+
+-- Every change to a submitted arrival/departure time, with the reason (audit trail).
+CREATE TABLE IF NOT EXISTS attendance_edits (
+	id         INTEGER PRIMARY KEY,
+	student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+	date       TEXT NOT NULL,
+	field      TEXT NOT NULL CHECK (field IN ('checkin','checkout')),
+	old_value  TEXT NOT NULL,
+	new_value  TEXT NOT NULL,
+	reason     TEXT NOT NULL,
+	edited_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+	edited_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_attendance_edits ON attendance_edits(student_id, date);
+
+-- Fees: an item (e.g. "Nov 2026 tuition") is billed to many students; each gets its own row.
+CREATE TABLE IF NOT EXISTS fee_items (
+	id           INTEGER PRIMARY KEY,
+	name         TEXT NOT NULL,
+	category     TEXT NOT NULL CHECK (category IN ('monthly','event','misc','other')),
+	amount_cents INTEGER NOT NULL,
+	due_date     TEXT NOT NULL DEFAULT '',
+	campus_id    INTEGER REFERENCES campuses(id) ON DELETE SET NULL,
+	class_id     INTEGER REFERENCES classes(id) ON DELETE SET NULL,
+	created_by   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+	created_at   TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS student_fees (
+	id           INTEGER PRIMARY KEY,
+	fee_item_id  INTEGER NOT NULL REFERENCES fee_items(id) ON DELETE CASCADE,
+	student_id   INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+	amount_cents INTEGER NOT NULL,
+	status       TEXT NOT NULL DEFAULT 'unpaid' CHECK (status IN ('unpaid','pending','paid','waived')),
+	paid_at      TEXT NOT NULL DEFAULT '',
+	note         TEXT NOT NULL DEFAULT '',
+	UNIQUE (fee_item_id, student_id)
+);
+CREATE INDEX IF NOT EXISTS idx_student_fees_student ON student_fees(student_id);
+
+CREATE TABLE IF NOT EXISTS receipt_fees (
+	receipt_id     INTEGER NOT NULL REFERENCES receipts(id) ON DELETE CASCADE,
+	student_fee_id INTEGER NOT NULL REFERENCES student_fees(id) ON DELETE CASCADE,
+	PRIMARY KEY (receipt_id, student_fee_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance(date);
 CREATE INDEX IF NOT EXISTS idx_receipts_status ON receipts(status);
 `
@@ -140,9 +190,37 @@ func openDB(path string) (*sql.DB, error) {
 	// Columns added after the first version; ignore "duplicate column" on databases that have them.
 	for _, stmt := range []string{
 		`ALTER TABLE users ADD COLUMN notify_push INTEGER NOT NULL DEFAULT 1`,
+		`ALTER TABLE users ADD COLUMN email TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE users ADD COLUMN campus_id INTEGER REFERENCES campuses(id) ON DELETE SET NULL`,
+		`ALTER TABLE users ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE classes ADD COLUMN campus_id INTEGER REFERENCES campuses(id) ON DELETE SET NULL`,
+		`ALTER TABLE announcements ADD COLUMN campus_id INTEGER REFERENCES campuses(id) ON DELETE CASCADE`,
+		`ALTER TABLE attendance ADD COLUMN checkout_at TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE attendance ADD COLUMN checkout_method TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE attendance ADD COLUMN checkout_by INTEGER REFERENCES users(id) ON DELETE SET NULL`,
+		`ALTER TABLE students ADD COLUMN birth_date TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE students ADD COLUMN gender TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE students ADD COLUMN health_notes TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE students ADD COLUMN emergency_name TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE students ADD COLUMN emergency_phone TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE students ADD COLUMN notes TEXT NOT NULL DEFAULT ''`,
 	} {
 		if _, err := db.Exec(stmt); err != nil && !strings.Contains(err.Error(), "duplicate column") {
 			return nil, fmt.Errorf("migrate: %w", err)
+		}
+	}
+	// Databases from before campuses existed: put their classes into one campus the admin can rename.
+	var orphan, campuses int
+	_ = db.QueryRow(`SELECT COUNT(*) FROM classes WHERE campus_id IS NULL`).Scan(&orphan)
+	_ = db.QueryRow(`SELECT COUNT(*) FROM campuses`).Scan(&campuses)
+	if orphan > 0 && campuses == 0 {
+		res, err := db.Exec(`INSERT INTO campuses (name) VALUES ('Main campus')`)
+		if err != nil {
+			return nil, fmt.Errorf("migrate campuses: %w", err)
+		}
+		id, _ := res.LastInsertId()
+		if _, err := db.Exec(`UPDATE classes SET campus_id = ? WHERE campus_id IS NULL`, id); err != nil {
+			return nil, fmt.Errorf("migrate campuses: %w", err)
 		}
 	}
 	return db, nil
@@ -211,20 +289,32 @@ func seedDemo(app *App) error {
 	if n > 0 {
 		return nil
 	}
-	tid, err := createUser(db, "teacher", "teacher123", "陈老师 Ms. Tan", "", "teacher")
+	var campusIDs []int64
+	for _, name := range []string{"Tadika Taman Merak", "Tadika Merak Pintar", "Tadika Merak Cemerlang"} {
+		res, err := db.Exec(`INSERT INTO campuses (name) VALUES (?)`, name)
+		if err != nil {
+			return err
+		}
+		id, _ := res.LastInsertId()
+		campusIDs = append(campusIDs, id)
+	}
+	tid, err := createUser(db, "teacher", "teacher123", "Ms. Tan 陈老师", "011-2223333", "teacher")
 	if err != nil {
+		return err
+	}
+	if _, err := db.Exec(`UPDATE users SET campus_id = ?, email = 'tan@example.com' WHERE id = ?`, campusIDs[0], tid); err != nil {
 		return err
 	}
 	pid, err := createUser(db, "parent", "parent123", "林先生 Mr. Lim", "012-3456789", "parent")
 	if err != nil {
 		return err
 	}
-	res, err := db.Exec(`INSERT INTO classes (name, teacher_id) VALUES ('一年级A班 1A', ?)`, tid)
+	res, err := db.Exec(`INSERT INTO classes (name, teacher_id, campus_id) VALUES ('5岁 Melati', ?, ?)`, tid, campusIDs[0])
 	if err != nil {
 		return err
 	}
 	c1, _ := res.LastInsertId()
-	res, err = db.Exec(`INSERT INTO classes (name) VALUES ('二年级B班 2B')`)
+	res, err = db.Exec(`INSERT INTO classes (name, campus_id) VALUES ('6岁 Mawar', ?)`, campusIDs[1])
 	if err != nil {
 		return err
 	}
@@ -252,6 +342,8 @@ func seedDemo(app *App) error {
 			}
 		}
 	}
+	_, _ = db.Exec(`UPDATE students SET birth_date = '2021-03-14', gender = 'M', health_notes = '对花生过敏 Peanut allergy',
+		emergency_name = '林太太 Mrs. Lim', emergency_phone = '013-9876543' WHERE student_no = 'S1001'`)
 	_, err = db.Exec(`INSERT INTO announcements (title, body, class_id, author_id, created_at)
 		VALUES ('欢迎使用 / Welcome', '学校通知会在这里发布。School announcements will appear here.', NULL, ?, ?)`, tid, app.nowStr())
 	if err != nil {

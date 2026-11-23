@@ -19,12 +19,28 @@ const (
 )
 
 type User struct {
-	ID       int64  `json:"id"`
-	Username string `json:"username"`
-	Name     string `json:"name"`
-	Phone    string `json:"phone"`
-	Role     string `json:"role"`
+	ID         int64  `json:"id"`
+	Username   string `json:"username"`
+	Name       string `json:"name"`
+	Phone      string `json:"phone"`
+	Email      string `json:"email"`
+	Role       string `json:"role"`
+	CampusID   int64  `json:"campus_id"` // 0 = all campuses (top-level admin)
+	CampusName string `json:"campus_name"`
+	Disabled   bool   `json:"disabled"`
 }
+
+// scope is the campus a staff member is limited to; 0 means every campus.
+// A teacher or admin with a campus only sees and manages that campus. Parents are scoped by their children instead.
+func scope(u *User) int64 {
+	if u.Role == "parent" {
+		return 0
+	}
+	return u.CampusID
+}
+
+// isTopAdmin: an admin not tied to one campus (the owner).
+func isTopAdmin(u *User) bool { return u.Role == "admin" && u.CampusID == 0 }
 
 type ctxKey struct{}
 
@@ -66,9 +82,10 @@ func (a *App) userFromRequest(r *http.Request) (*User, error) {
 		return nil, err
 	}
 	u := &User{}
-	err = a.db.QueryRow(`SELECT u.id, u.username, u.name, u.phone, u.role FROM sessions s
-		JOIN users u ON u.id = s.user_id WHERE s.token = ? AND s.expires_at > ?`,
-		c.Value, time.Now().Unix()).Scan(&u.ID, &u.Username, &u.Name, &u.Phone, &u.Role)
+	err = a.db.QueryRow(`SELECT u.id, u.username, u.name, u.phone, u.email, u.role, COALESCE(u.campus_id,0), COALESCE(cp.name,'')
+		FROM sessions s JOIN users u ON u.id = s.user_id LEFT JOIN campuses cp ON cp.id = u.campus_id
+		WHERE s.token = ? AND s.expires_at > ? AND u.disabled = 0`,
+		c.Value, time.Now().Unix()).Scan(&u.ID, &u.Username, &u.Name, &u.Phone, &u.Email, &u.Role, &u.CampusID, &u.CampusName)
 	if err != nil {
 		return nil, err
 	}
@@ -91,7 +108,8 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	var id int64
 	var hash string
-	err := a.db.QueryRow(`SELECT id, password_hash FROM users WHERE username = ?`, username).Scan(&id, &hash)
+	var disabled bool
+	err := a.db.QueryRow(`SELECT id, password_hash, disabled FROM users WHERE username = ?`, username).Scan(&id, &hash, &disabled)
 	if err == nil {
 		err = bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Password))
 	}
@@ -101,6 +119,10 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.limiter.reset(username)
+	if disabled {
+		httpError(w, http.StatusForbidden, "account disabled")
+		return
+	}
 	token := randomToken(32)
 	expires := time.Now().Add(sessionTTL)
 	if _, err := a.db.Exec(`INSERT INTO sessions (token, user_id, expires_at) VALUES (?,?,?)`, token, id, expires.Unix()); err != nil {
@@ -124,7 +146,7 @@ func (a *App) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleMe(w http.ResponseWriter, r *http.Request) {
 	u := currentUser(r)
-	resp := map[string]any{"user": u, "late_after": a.lateAfter, "today": a.now().Format("2006-01-02"), "currency": a.currency}
+	resp := map[string]any{"user": u, "late_after": a.lateAfter, "today": a.now().Format("2006-01-02"), "currency": a.currency, "time_zone": a.loc.String()}
 	if u.Role == "parent" {
 		children, err := a.queryStudents(`WHERE s.id IN (SELECT student_id FROM parent_students WHERE parent_id = ?)`, u.ID)
 		if err != nil {
