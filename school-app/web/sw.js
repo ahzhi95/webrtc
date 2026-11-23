@@ -8,10 +8,10 @@ self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim(
 self.addEventListener('push', (event) => {
   let data = {};
   try { data = event.data ? event.data.json() : {}; } catch (e) { data = { body: event.data && event.data.text() }; }
-  event.waitUntil(self.registration.showNotification(data.title || '校园通', {
+  event.waitUntil(self.registration.showNotification(data.title || 'Lovely House', {
     body: data.body || '',
-    icon: '/icon.svg',
-    badge: '/icon.svg',
+    icon: '/brand/icon-192.png',
+    badge: '/brand/favicon.png',
     tag: data.tag,
     renotify: !!data.tag,
     data: { url: data.url || '/' },

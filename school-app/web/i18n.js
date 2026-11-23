@@ -1,8 +1,8 @@
 // UI text in Chinese and English. Add a key to both languages when adding UI text.
 window.I18N = {
   zh: {
-    appName: '校园通',
-    appSub: '到园离园 · 通知 · 缴费 · 照片',
+    appName: 'Lovely House',
+    appSub: '用爱陪伴孩子成长 · 家园联系',
     username: '用户名', password: '密码', login: '登录', logout: '退出登录', logoutShort: '退出', logoutConfirm: '确定要退出登录吗？',
     role_admin: '管理员', role_teacher: '老师', role_parent: '家长',
     tab_home: '首页', tab_scan: '扫码', tab_attendance: '考勤', tab_notices: '通知',
@@ -186,6 +186,9 @@ window.I18N = {
     photoTag: '场景', photoDay: '拍摄日期', allTags: '全部场景',
     tag_class: '上课', tag_outdoor: '户外活动', tag_art: '美术手工', tag_music: '音乐舞蹈', tag_meal: '用餐 / 点心',
     tag_festival: '节日活动', tag_birthday: '生日会', tag_trip: '校外教学', tag_other: '其他',
+    // home
+    goodMorning: '早安', goodAfternoon: '午安', goodEvening: '晚上好', details: '详情', latestOn: '最新 {d}', nNew: '{n} 则新的',
+    allRead: '都看过了', nUnread: '{n} 条未读',
     // errors from server
     'err:wrong username or password': '用户名或密码错误',
     'err:too many attempts, try again in 15 minutes': '尝试次数太多，请 15 分钟后再试',
@@ -210,8 +213,8 @@ window.I18N = {
     'err:network': '网络错误，请重试',
   },
   en: {
-    appName: 'School App',
-    appSub: 'Arrival · Notices · Fees · Photos',
+    appName: 'Lovely House',
+    appSub: 'Growing up with love · School & home together',
     username: 'Username', password: 'Password', login: 'Log in', logout: 'Log out', logoutShort: 'Log out', logoutConfirm: 'Log out now?',
     role_admin: 'Admin', role_teacher: 'Teacher', role_parent: 'Parent',
     tab_home: 'Home', tab_scan: 'Scan', tab_attendance: 'Register', tab_notices: 'Notices',
@@ -346,6 +349,8 @@ window.I18N = {
     photoTag: 'Scene', photoDay: 'Date taken', allTags: 'All scenes',
     tag_class: 'Class', tag_outdoor: 'Outdoor', tag_art: 'Art & craft', tag_music: 'Music & dance', tag_meal: 'Meals & snacks',
     tag_festival: 'Festival', tag_birthday: 'Birthday', tag_trip: 'Field trip', tag_other: 'Other',
+    goodMorning: 'Good morning', goodAfternoon: 'Good afternoon', goodEvening: 'Good evening', details: 'Details', latestOn: 'Latest {d}', nNew: '{n} new',
+    allRead: 'All read', nUnread: '{n} unread',
     'err:network': 'Network error, please try again',
   },
 };

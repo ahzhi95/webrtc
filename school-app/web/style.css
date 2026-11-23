@@ -1,45 +1,62 @@
+/* Lovely House — colours from the school logo (navy heart, rose ring, cream, mint, gold).
+   Text colours are checked for at least 4.5:1 contrast (WCAG AA). */
+@font-face { font-family: "Nunito"; src: url(fonts/nunito-latin-400-normal.woff2) format("woff2"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Nunito"; src: url(fonts/nunito-latin-700-normal.woff2) format("woff2"); font-weight: 500 700; font-display: swap; }
+@font-face { font-family: "Nunito"; src: url(fonts/nunito-latin-800-normal.woff2) format("woff2"); font-weight: 800 900; font-display: swap; }
+
 :root {
-  --bg: #f6f5f1;
+  --bg: #fffaf0;
   --surface: #ffffff;
-  --surface-2: #efede6;
-  --text: #1d2420;
-  --muted: #66706a;
-  --border: #dedad0;
-  --primary: #1f6f5c;
+  --surface-2: #f7efdd;
+  --text: #3b3858;
+  --muted: #6d6886;
+  --border: #eee3cc;
+  --primary: #484868;          /* navy: buttons, links */
   --primary-text: #ffffff;
-  --primary-soft: #dcefe8;
-  --ok: #1d7a4a;
-  --ok-soft: #dcf2e4;
-  --warn: #9a6200;
-  --warn-soft: #fbedd0;
-  --bad: #b3261e;
-  --bad-soft: #f9dedc;
-  --info: #2457a6;
-  --info-soft: #dfe8f8;
-  --radius: 14px;
-  --shadow: 0 1px 2px rgba(0,0,0,.06), 0 2px 8px rgba(0,0,0,.04);
+  --primary-soft: #ecebf5;
+  --accent: #a94f4f;           /* rose, darkened for readable text */
+  --accent-soft: #f9e5e1;
+  --rose: #c06868;             /* logo rose, decoration only */
+  --cream: #f8f0a8;
+  --mint: #c8e0d0;
+  --gold: #f8c010;
+  --ok: #2f6b4f;
+  --ok-soft: #e3f1e8;
+  --warn: #8a5a00;
+  --warn-soft: #fdf1c8;
+  --bad: #a3352f;
+  --bad-soft: #f9e0dc;
+  --info: #3f4a8c;
+  --info-soft: #e7e9f7;
+  --radius: 20px;
+  --radius-sm: 12px;
+  --shadow: 0 1px 2px rgba(72,72,104,.06), 0 4px 16px rgba(72,72,104,.07);
+  --shadow-lg: 0 8px 30px rgba(72,72,104,.14);
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #121614;
-    --surface: #1b211e;
-    --surface-2: #242b27;
-    --text: #e7ebe8;
-    --muted: #9aa49e;
-    --border: #2f3833;
-    --primary: #4fb597;
-    --primary-text: #0b1512;
-    --primary-soft: #1d3a31;
-    --ok: #6fd39a;
-    --ok-soft: #173826;
-    --warn: #f2c14e;
-    --warn-soft: #3a2f12;
-    --bad: #f2a29c;
-    --bad-soft: #3d1c1a;
-    --info: #9dbdf2;
-    --info-soft: #1b2a44;
-    --shadow: none;
+    --bg: #1b1928;
+    --surface: #262338;
+    --surface-2: #312d47;
+    --text: #f4eee0;
+    --muted: #b6b0c9;
+    --border: #3b3655;
+    --primary: #c9c6f0;
+    --primary-text: #1b1928;
+    --primary-soft: #343057;
+    --accent: #e79a95;
+    --accent-soft: #46283a;
+    --ok: #8fd5b0;
+    --ok-soft: #1f3a2f;
+    --warn: #f5cd6b;
+    --warn-soft: #3d3218;
+    --bad: #f3a7a0;
+    --bad-soft: #452326;
+    --info: #b7bff5;
+    --info-soft: #2c2f52;
+    --shadow: 0 1px 2px rgba(0,0,0,.3);
+    --shadow-lg: 0 8px 30px rgba(0,0,0,.45);
     color-scheme: dark;
   }
 }
@@ -51,7 +68,7 @@ html { scroll-padding-top: 64px; scroll-padding-bottom: calc(84px + env(safe-are
 body {
   background: var(--bg);
   color: var(--text);
-  font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  font: 16px/1.55 "Nunito", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
   -webkit-text-size-adjust: 100%;
 }
 button, input, select, textarea { font: inherit; color: inherit; }
@@ -290,6 +307,8 @@ li.is-disabled { opacity: .6; }
   .topbar h1 { font-size: 16px; }
   .topbar .campus-tag { display: none; }
   .topbar .lang-btn { padding: 2px 7px; }
+  /* only the logo on the smallest phones; the name stays available to screen readers */
+  .topbar h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }
 .badge.wrap { white-space: normal; line-height: 1.3; }
 
@@ -305,4 +324,130 @@ li.is-disabled { opacity: .6; }
   body { background: #fff; }
   main { padding: 0; max-width: none; }
   .cards { grid-template-columns: repeat(4, 1fr); }
+}
+
+/* =====================================================================
+   Lovely House theme — friendly, roomy, easy for parents to tap and read
+   ===================================================================== */
+h2 { font-size: 22px; font-weight: 800; letter-spacing: -.01em; }
+h3 { font-weight: 800; }
+a { color: var(--primary); text-underline-offset: 3px; }
+::selection { background: var(--cream); color: #3b3858; }
+
+/* Top bar: frosted, with the school logo */
+.topbar {
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  -webkit-backdrop-filter: saturate(1.4) blur(14px); backdrop-filter: saturate(1.4) blur(14px);
+  color: var(--text); border-bottom: 1px solid var(--border);
+}
+.topbar .brand { display: flex; align-items: center; gap: 8px; min-width: 0; flex: none; }
+.topbar .brand img { width: 34px; height: 34px; object-fit: contain; flex: none; }
+.topbar h1 { font-size: 18px; font-weight: 800; color: var(--primary); letter-spacing: -.01em; }
+.topbar .who { opacity: 1; color: var(--muted); }
+.topbar .lang-btn { color: var(--primary); border-color: var(--border); background: var(--surface); }
+.campus-tag { background: var(--mint); color: #2f4a3e; font-weight: 700; }
+@media (max-width: 600px) { .topbar .campus-tag { display: none; } }
+.bell { color: var(--primary); }
+.bell.on { background: var(--primary-soft); }
+
+/* Bottom tabs: a soft pill behind the current tab */
+.tabs {
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
+  -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px);
+  border-top: 1px solid var(--border); padding-top: 4px;
+}
+.tabs button { padding: 6px 2px 8px; font-size: 12px; font-weight: 700; }
+.tabs button .ic { font-size: 22px; width: 52px; height: 30px; display: grid; place-items: center; border-radius: 999px; transition: background .2s, transform .2s; }
+.tabs button.on { color: var(--accent); }
+.tabs button.on .ic { background: var(--accent-soft); transform: translateY(-1px); }
+
+/* Cards and lists */
+.card { border-radius: var(--radius); border-color: transparent; box-shadow: var(--shadow); padding: 16px 18px; }
+.stat { border-radius: 16px; border-color: transparent; box-shadow: var(--shadow); }
+.list > li { border-top-color: var(--border); }
+.badge { border-radius: 999px; font-weight: 700; padding: 5px 9px; }
+.chip { background: var(--surface-2); }
+
+/* Buttons: rounded, clear, at least 44px tall for easy tapping */
+.btn { border-radius: 999px; min-height: 44px; padding: 9px 18px; font-weight: 700; border-color: var(--border);
+  transition: transform .12s ease, box-shadow .2s ease, background .2s ease; }
+.btn:active:not(:disabled) { transform: scale(.97); }
+.btn.primary { box-shadow: 0 4px 14px color-mix(in srgb, var(--primary) 30%, transparent); }
+.btn.primary:hover:not(:disabled) { box-shadow: 0 6px 20px color-mix(in srgb, var(--primary) 38%, transparent); }
+.btn.sm { min-height: 36px; padding: 5px 14px; }
+.btn.ok { background: var(--ok); border-color: var(--ok); color: #fff; }
+.btn.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 30%, var(--border)); }
+.btn.accent { background: var(--accent); border-color: var(--accent); color: #fff; }
+.seg { border-radius: 999px; padding: 4px; background: var(--surface-2); }
+.seg button { border-radius: 999px; font-weight: 700; padding: 8px 14px; }
+.seg button.on { color: var(--primary); }
+
+/* Form fields */
+input[type=text], input[type=password], input[type=number], input[type=date], input[type=time], input[type=tel], input[type=email], input[type=search], input[type=datetime-local], select, textarea {
+  border-radius: var(--radius-sm); border-color: var(--border); background: var(--surface); min-height: 48px; font-size: 16px;
+  transition: border-color .15s, box-shadow .15s;
+}
+input:focus, select:focus, textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 4px var(--primary-soft); }
+button:focus-visible, a:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+label.f { font-weight: 700; font-size: 14px; }
+input[type=checkbox] { accent-color: var(--primary); }
+
+/* Dialog sheet */
+.dialog-back { background: rgba(35,32,55,.45); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
+.dialog { border-radius: 24px 24px 0 0; box-shadow: var(--shadow-lg); padding: 18px 18px calc(18px + env(safe-area-inset-bottom)); }
+@media (min-width: 600px) { .dialog { border-radius: 24px; } }
+.toast { border-radius: 999px; padding: 12px 20px; background: var(--primary); color: var(--primary-text); font-weight: 700; box-shadow: var(--shadow-lg); }
+
+/* Login: warm background in the logo colours */
+body.auth { background:
+  radial-gradient(60vmax 60vmax at -10% -10%, color-mix(in srgb, var(--cream) 70%, transparent), transparent 60%),
+  radial-gradient(50vmax 50vmax at 110% 10%, color-mix(in srgb, var(--mint) 70%, transparent), transparent 60%),
+  radial-gradient(60vmax 50vmax at 50% 120%, color-mix(in srgb, var(--rose) 22%, transparent), transparent 60%), var(--bg); min-height: 100vh; }
+.login { margin-top: 6vh; }
+.login .logo { width: 128px; height: auto; margin-bottom: 8px; filter: drop-shadow(0 8px 18px rgba(72,72,104,.18)); }
+.login h1 { font-size: 32px; font-weight: 900; color: var(--primary); letter-spacing: -.02em; }
+.login p.sub { color: var(--muted); font-weight: 600; }
+.login .card { padding: 22px; box-shadow: var(--shadow-lg); }
+
+/* Parent home */
+.hello { display: flex; align-items: center; gap: 12px; margin: 2px 0 4px; }
+.hello h2 { margin: 0; }
+.kid-card { position: relative; overflow: hidden; }
+.kid-card::before { content: ""; position: absolute; inset: 0 0 auto 0; height: 6px; background: linear-gradient(90deg, var(--rose), var(--gold), var(--mint)); }
+.kid-head { display: flex; align-items: center; gap: 12px; }
+.avatar { width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; font-weight: 900; font-size: 22px; flex: none; color: #3b3858; }
+.avatar.c0 { background: var(--mint); } .avatar.c1 { background: var(--cream); } .avatar.c2 { background: #f3c9c4; } .avatar.c3 { background: #d9d6f2; }
+.kid-name { font-size: 18px; font-weight: 800; line-height: 1.25; }
+.status-pill { display: flex; align-items: center; gap: 12px; border-radius: 16px; padding: 14px 16px; margin-top: 14px; font-weight: 800; font-size: 18px; }
+.status-pill .s-ic { font-size: 28px; line-height: 1; }
+.status-pill small { display: block; font-weight: 600; font-size: 13px; opacity: .85; }
+.status-pill.in { background: var(--ok-soft); color: var(--ok); }
+.status-pill.late { background: var(--warn-soft); color: var(--warn); }
+.status-pill.out { background: var(--info-soft); color: var(--info); }
+.status-pill.none { background: var(--surface-2); color: var(--muted); }
+.tiles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+@media (min-width: 560px) { .tiles { grid-template-columns: repeat(4, 1fr); } }
+.tile { position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 16px; border: 0; border-radius: var(--radius);
+  background: var(--surface); box-shadow: var(--shadow); color: var(--text); cursor: pointer; text-align: left; font-weight: 800; font-size: 16px;
+  transition: transform .15s ease, box-shadow .2s ease; min-height: 104px; }
+.tile:active { transform: scale(.97); }
+.tile:hover { box-shadow: var(--shadow-lg); }
+.tile .t-ic { width: 44px; height: 44px; border-radius: 14px; display: grid; place-items: center; font-size: 24px; }
+.tile small { font-weight: 600; font-size: 13px; color: var(--muted); }
+.tile .t-n { position: absolute; top: 12px; right: 12px; background: var(--accent); color: #fff; border-radius: 999px; min-width: 24px; height: 24px; padding: 0 7px; display: grid; place-items: center; font-size: 13px; }
+.t-fees .t-ic { background: var(--cream); } .t-photos .t-ic { background: var(--mint); } .t-notices .t-ic { background: #f3c9c4; } .t-msgs .t-ic { background: #d9d6f2; }
+.section-head { display: flex; align-items: center; gap: 8px; margin: 4px 2px 10px; }
+.section-head h3 { margin: 0; flex: 1; }
+
+/* Loading placeholders instead of a plain "loading…" */
+.skeleton { display: grid; gap: 12px; }
+.skeleton > div { height: 92px; border-radius: var(--radius); background: linear-gradient(100deg, var(--surface) 30%, var(--surface-2) 50%, var(--surface) 70%) 0 0 / 300% 100%; animation: shimmer 1.3s ease-in-out infinite; box-shadow: var(--shadow); }
+.skeleton > div:first-child { height: 150px; }
+@keyframes shimmer { from { background-position: 100% 0; } to { background-position: 0 0; } }
+main > * { animation: rise .28s ease both; }
+@keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* Respect "reduce motion" settings */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
 }

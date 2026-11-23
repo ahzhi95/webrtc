@@ -1,4 +1,4 @@
-# 校园通 School App
+# Lovely House 幼儿园 App
 
 给幼儿园（多个校区）用的手机网页 App：
 
@@ -110,7 +110,7 @@ Android 手机直接可用。**iPhone 要先用 Safari“添加到主屏幕”�
 
 ```bash
 SMTP_HOST=smtp.gmail.com SMTP_PORT=587 SMTP_USERNAME=学校邮箱@gmail.com SMTP_PASSWORD=应用专用密码 \
-SMTP_FROM="校园通 <学校邮箱@gmail.com>" ./schoolapp -public-url https://你的网址 ...
+SMTP_FROM="Lovely House <学校邮箱@gmail.com>" ./schoolapp -public-url https://你的网址 ...
 ```
 
 `-public-url` 是 App 的网址，邮件里的链接会用这个网址。

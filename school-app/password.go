@@ -177,9 +177,9 @@ func (a *App) handleForgotPassword(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		link := a.publicURL(r) + "/#reset=" + token
-		body := "您好，\n\n请点下面的链接重设校园通的密码（30 分钟内有效，只能用一次）：\n" + link +
+		body := "您好，\n\n请点下面的链接重设 Lovely House App 的密码（30 分钟内有效，只能用一次）：\n" + link +
 			"\n\n如果不是您本人要求的，请忽略这封邮件，您的密码不会改变。\n\n" +
-			"Hello,\n\nUse this link to reset your School App password (valid for 30 minutes, one use only):\n" + link +
+			"Hello,\n\nUse this link to reset your Lovely House app password (valid for 30 minutes, one use only):\n" + link +
 			"\n\nIf you did not ask for this, ignore this email; your password stays the same.\n"
 		go func() {
 			if err := a.mailer.Send(email, "重设密码 / Reset your password", body); err != nil {

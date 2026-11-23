@@ -219,6 +219,7 @@ function render() {
   document.documentElement.lang = lang === 'zh' ? 'zh' : 'en';
   const root = document.getElementById('app');
   root.replaceChildren();
+  document.body.classList.toggle('auth', !state.me || !!state.resetToken);
   if (state.resetToken) { root.append(resetView()); return; }
   if (!state.me && state.publicPage) { root.append(publicPageView()); return; }
   if (!state.me) { root.append(state.forgot ? forgotView() : loginView()); return; }
@@ -231,7 +232,7 @@ function render() {
   const main = h('main', {});
   root.append(
     h('header', { class: 'topbar' },
-      h('h1', {}, t('appName')),
+      h('div', { class: 'brand' }, h('img', { src: 'brand/logo.png', alt: '' }), h('h1', {}, t('appName'))),
       state.me.user.campus_name && h('span', { class: 'campus-tag' }, state.me.user.campus_name),
       h('span', { class: 'who' }, state.me.user.name),
       bellButton(),
@@ -242,7 +243,7 @@ function render() {
       h('button', { class: state.tab === k ? 'on' : null, 'aria-current': state.tab === k ? 'page' : null, onclick: () => go(k) },
         h('span', { class: 'ic', 'aria-hidden': 'true' }, ic), t('tab_' + k)))),
   );
-  main.append(h('div', { class: 'empty' }, t('loading')));
+  main.append(h('div', { class: 'skeleton', 'aria-busy': 'true', 'aria-label': t('loading') }, h('div'), h('div'), h('div')));
   Promise.resolve(VIEWS[state.tab](main)).catch((e) => { main.replaceChildren(h('div', { class: 'empty' }, e.message)); });
 }
 
@@ -305,7 +306,7 @@ function loginView() {
     h('button', { type: 'button', class: 'linkbtn small', onclick: () => { state.publicPage = 'privacy'; render(); } }, t('pagePrivacy')));
   return h('div', { class: 'login' },
     h('div', { class: 'row', style: 'justify-content:flex-end;margin-bottom:8px' }, (() => { const b = langButton(); b.style.color = 'var(--primary)'; return b; })()),
-    h('img', { class: 'logo', src: 'icon.svg', alt: '' }),
+    h('img', { class: 'logo', src: 'brand/logo.png', alt: '' }),
     h('h1', {}, t('appName')),
     h('p', { class: 'sub muted' }, t('appSub')),
     form, legal);
@@ -315,7 +316,7 @@ function loginView() {
 function authShell(title, ...content) {
   return h('div', { class: 'login' },
     h('div', { class: 'row', style: 'justify-content:flex-end;margin-bottom:8px' }, (() => { const b = langButton(); b.style.color = 'var(--primary)'; return b; })()),
-    h('img', { class: 'logo', src: 'icon.svg', alt: '' }),
+    h('img', { class: 'logo', src: 'brand/logo.png', alt: '' }),
     h('h1', {}, title), ...content);
 }
 
@@ -516,43 +517,64 @@ function todayBox(rec) {
 VIEWS.home = async (main) => {
   const me = await api('GET', '/api/me');
   state.me.children = me.children;
+  state.me.unread = me.unread;
   const children = me.children || [];
   const [notices, fees, photos] = await Promise.all([
     api('GET', '/api/announcements'),
     children.length ? api('GET', '/api/fees') : [],
     children.length ? api('GET', '/api/photos?limit=6') : [],
   ]);
+  const records = await Promise.all(children.map((c) => api('GET', `/api/attendance/student/${c.id}`).catch(() => ({ records: [] }))));
+  const hour = Number(nowHHMM().slice(0, 2));
+  const greet = t(hour < 12 ? 'goodMorning' : hour < 18 ? 'goodAfternoon' : 'goodEvening');
   const out = [];
+
+  out.push(h('div', { class: 'hello' }, h('div', {},
+    h('h2', {}, greet, lang === 'zh' ? '，' : ', ', state.me.user.name.split(' ')[0]),
+    h('div', { class: 'muted small' }, new Date(todayStr() + 'T00:00:00').toLocaleDateString(lang === 'zh' ? 'zh-CN' : 'en-MY', { weekday: 'long', month: 'long', day: 'numeric' })))));
+
+  if (!children.length) out.push(h('div', { class: 'card empty' }, t('noChildren')));
+
+  // One big card per child: today's status first, in plain words.
+  children.forEach((c, i) => {
+    const rec = records[i].records.find((r) => r.date === todayStr());
+    const inT = rec && hhmm(rec.checkin_at), outT = rec && hhmm(rec.checkout_at);
+    let pill;
+    if (outT) pill = h('div', { class: 'status-pill out' }, h('span', { class: 's-ic' }, '🏠'), h('div', {}, t('leftAt', { t: outT }), h('small', {}, t('arrivedAt', { t: inT || '—' }))));
+    else if (inT) pill = h('div', { class: 'status-pill ' + (rec.late ? 'late' : 'in') }, h('span', { class: 's-ic' }, rec.late ? '⏰' : '✅'), h('div', {}, t('arrivedAt', { t: inT }), h('small', {}, rec.late ? t('late') : t('onTime'))));
+    else pill = h('div', { class: 'status-pill none' }, h('span', { class: 's-ic' }, '🌤️'), h('div', {}, t('notArrived'), h('small', {}, t('todayStatus'), ' ', todayStr())));
+    out.push(h('section', { class: 'card kid-card' },
+      h('div', { class: 'kid-head' },
+        h('div', { class: 'avatar c' + (i % 4), 'aria-hidden': 'true' }, [...c.name.trim()][0]),
+        h('div', { style: 'flex:1;min-width:0' }, h('div', { class: 'kid-name' }, c.name), h('div', { class: 'muted small' }, c.class_name || t('noClass'), ' · ', c.campus_name)),
+        h('button', { class: 'btn sm', onclick: () => openStudent(c.id) }, t('details'), ' ›')),
+      pill));
+  });
+
+  // Big shortcuts with counts of what needs attention.
+  const unpaid = fees.filter((f) => f.status === 'unpaid');
+  const unreadNotices = notices.filter((n) => !n.read).length;
+  const tile = (cls, icon, label, sub, n, onclick) => h('button', { class: 'tile ' + cls, onclick },
+    n > 0 && h('span', { class: 't-n', 'aria-label': String(n) }, n > 99 ? '99+' : n),
+    h('span', { class: 't-ic', 'aria-hidden': 'true' }, icon), h('span', {}, label, h('small', { style: 'display:block' }, sub)));
+  if (children.length) {
+    out.push(h('div', { class: 'tiles' },
+      tile('t-fees', '🧾', t('tab_receipts'), unpaid.length ? money(unpaid.reduce((s, f) => s + f.amount_cents, 0)) : t('allPaid'), unpaid.length, () => go('receipts')),
+      tile('t-photos', '🖼️', t('tab_photos'), photos.length ? t('latestOn', { d: photos[0].taken_on }) : t('noPhotos'), 0, () => go('photos')),
+      tile('t-notices', '📢', t('tab_notices'), unreadNotices ? t('nNew', { n: unreadNotices }) : t('allRead'), unreadNotices, () => go('notices')),
+      tile('t-msgs', '💬', t('messagesTitle'), state.me.unread ? t('nUnread', { n: state.me.unread }) : t('allRead'), state.me.unread, () => { state.backTab = 'home'; go('messages'); })));
+  }
+  // Asking to turn on notifications comes after what parents look for first.
   const pushCard = await pushPromptCard(() => VIEWS.home(main)).catch(() => null);
   if (pushCard) out.push(pushCard);
-  if (!children.length) out.push(h('div', { class: 'card empty' }, t('noChildren')));
-  for (const c of children) {
-    const data = await api('GET', `/api/attendance/student/${c.id}`);
-    const today = data.records.find((r) => r.date === todayStr());
-    out.push(h('section', { class: 'card' },
-      h('div', { class: 'row' },
-        h('div', { class: 'grow' }, h('h3', { style: 'margin:0' }, c.name), h('div', { class: 'muted small' }, c.campus_name, ' · ', c.class_name || t('noClass'))),
-        h('button', { class: 'btn sm', onclick: () => openStudent(c.id) }, t('profileAndRecords'))),
-      todayBox(today)));
-  }
-  const unpaid = fees.filter((f) => f.status === 'unpaid');
-  if (unpaid.length) {
-    const total = unpaid.reduce((s, f) => s + f.amount_cents, 0);
-    const overdue = unpaid.some((f) => f.due_date && f.due_date < todayStr());
-    out.push(h('section', { class: 'card' }, h('div', { class: 'row' },
-      h('div', { class: 'grow' }, h('h3', { style: 'margin:0' }, '🧾 ', t('feesDue', { n: unpaid.length })),
-        h('div', { class: 'small ' + (overdue ? 'bad-text' : 'muted') }, money(total), overdue ? ' · ' + t('overdue') : '')),
-      h('button', { class: 'btn sm primary', onclick: () => go('receipts') }, t('payNow')))));
-  }
+
   if (photos.length) {
-    out.push(h('section', { class: 'card' },
-      h('div', { class: 'row', style: 'margin-bottom:10px' }, h('h3', { class: 'grow', style: 'margin:0' }, t('latestPhotos')), h('button', { class: 'btn sm', onclick: () => go('photos') }, t('more'))),
+    out.push(h('div', {}, h('div', { class: 'section-head' }, h('h3', {}, t('latestPhotos')), h('button', { class: 'btn sm', onclick: () => go('photos') }, t('more'))),
       photoGrid(photos, () => VIEWS.home(main))));
   }
   if (notices.length) {
-    out.push(h('section', { class: 'card' },
-      h('div', { class: 'row' }, h('h3', { class: 'grow', style: 'margin:0' }, t('latestNotice')), h('button', { class: 'btn sm', onclick: () => go('notices') }, t('more'))),
-      noticeItem(notices[0], false)));
+    out.push(h('div', {}, h('div', { class: 'section-head' }, h('h3', {}, t('latestNotice')), h('button', { class: 'btn sm', onclick: () => go('notices') }, t('more'))),
+      h('section', { class: 'card' }, noticeItem(notices[0], false))));
   }
   main.replaceChildren(h('div', { class: 'stack' }, out));
 };

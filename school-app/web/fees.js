@@ -276,7 +276,7 @@ async function feeItemStudents(item, done) {
 const RECEIPT_FONT = '"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans SC","Noto Sans CJK SC","WenQuanYi Zen Hei",sans-serif';
 const METHOD_LABEL = { transfer: ['网上转账 / 银行转账', 'Online / bank transfer'], cash: ['现金', 'Cash'], other: ['其他', 'Other'] };
 
-function drawReceipt(r) {
+function drawReceipt(r, logo) {
   const W = 1240, P = 80;
   const c = document.createElement('canvas');
   c.width = W; c.height = 3200;
@@ -303,6 +303,11 @@ function drawReceipt(r) {
   const rule = (w = 2, color = '#222') => { g.fillStyle = color; g.fillRect(P, y, W - 2 * P, w); };
   const s = r.school;
 
+  if (logo) { // school logo above the name
+    const lh = 130, lw = lh * logo.naturalWidth / logo.naturalHeight;
+    g.drawImage(logo, (W - lw) / 2, y, lw, lh);
+    y += lh + 16;
+  }
   y += text(s.name || '—', W / 2, W - 2 * P, 50, { bold: true, align: 'center' }) + 6;
   if (s.reg_no) y += text(s.reg_no, W / 2, W - 2 * P, 24, { align: 'center', color: '#444' });
   if (s.address) y += text(s.address, W / 2, W - 2 * P, 24, { align: 'center', color: '#444' });
@@ -398,7 +403,8 @@ function saveBlob(blob, name) {
 async function openOfficialReceipt(id) {
   let r;
   try { r = await api('GET', `/api/official-receipts/${id}`); } catch (e) { toast(e.message); return; }
-  const canvas = drawReceipt(r);
+  const logo = await new Promise((res) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = 'brand/logo.png'; });
+  const canvas = drawReceipt(r, logo);
   const img = h('img', { class: 'receipt-preview', src: canvas.toDataURL('image/png'), alt: r.number });
   const base = 'receipt-' + r.number;
   const pdfFile = async () => new File([await receiptPDF(canvas)], base + '.pdf', { type: 'application/pdf' });
