@@ -422,7 +422,7 @@ async function docSection(key, editable, rerender) {
   const p = await api('GET', '/api/pages/' + key);
   return h('section', { class: 'card' },
     editable && h('div', { class: 'row', style: 'justify-content:flex-end' },
-      p.is_default && h('span', { class: 'badge warn grow' }, t('draftText')),
+      p.is_default && h('span', { class: 'badge warn wrap grow' }, t('draftText')),
       h('button', { class: 'btn sm', onclick: () => {
         const ta = h('textarea', { style: 'min-height:50vh;font-size:14px' }, p.text);
         openDialog(t('page' + key[0].toUpperCase() + key.slice(1)), [h('p', { class: 'small muted', style: 'margin-top:0' }, t('docHint')), ta],
