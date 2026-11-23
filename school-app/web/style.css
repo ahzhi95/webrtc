@@ -272,6 +272,8 @@ li.is-disabled { opacity: .6; }
 .unread-card { border-color: var(--primary); }
 .is-retracted { opacity: .6; }
 
+.reply { background: var(--primary-soft); border-radius: 10px; padding: 8px 12px; margin-top: 8px; font-size: 14px; }
+
 /* ---------- QR cards (print) ---------- */
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
 .qrcard { background: #fff; color: #111; border: 1px dashed #999; border-radius: 10px; padding: 10px; text-align: center; break-inside: avoid; }

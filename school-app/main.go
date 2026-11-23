@@ -201,6 +201,12 @@ func (a *App) routes() http.Handler {
 	mux.Handle("GET /api/export/receipts", a.auth(a.handleExportReceipts, "admin"))
 	mux.Handle("GET /api/export/logs", a.auth(a.handleExportLogs, "admin"))
 
+	// Suggestions and feedback
+	mux.Handle("POST /api/feedback", a.auth(a.handleCreateFeedback, "parent", "teacher"))
+	mux.Handle("GET /api/feedback", a.auth(a.handleListFeedback))
+	mux.Handle("GET /api/feedback/{id}/images/{iid}", a.auth(a.handleFeedbackImage))
+	mux.Handle("POST /api/feedback/{id}/reply", a.auth(a.handleReplyFeedback, "admin"))
+
 	return mux
 }
 

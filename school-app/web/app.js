@@ -633,6 +633,47 @@ VIEWS.notices = async (main) => {
   }
 };
 
+// ============ suggestions & feedback (建议反馈) ============
+const FEEDBACK_CATEGORIES = ['suggestion', 'problem', 'complaint', 'other'];
+const feedbackStatusBadge = (s) => h('span', { class: 'badge ' + ({ new: 'warn', in_progress: 'info', resolved: 'ok' }[s]) }, t('fb_' + s));
+const feedbackImages = (f) => f.images.length > 0 && h('div', { class: 'pgrid', style: 'margin-top:6px' }, f.images.map((iid) =>
+  h('a', { class: 'pthumb', href: `/api/feedback/${f.id}/images/${iid}`, target: '_blank', rel: 'noopener' }, h('img', { src: `/api/feedback/${f.id}/images/${iid}`, alt: '', loading: 'lazy' }))));
+
+async function myFeedbackCard(rerender) {
+  const list = await api('GET', '/api/feedback').catch(() => []);
+  return h('section', { class: 'card' },
+    h('div', { class: 'row' }, h('h3', { class: 'grow', style: 'margin:0' }, '💬 ', t('feedbackTitle')),
+      h('button', { class: 'btn sm primary', onclick: () => feedbackDialog(rerender) }, t('feedbackNew'))),
+    list.length ? h('ul', { class: 'list' }, list.map((f) => h('li', {},
+      h('div', { class: 'row' }, h('span', { class: 'badge' }, t('fbc_' + f.category)), h('span', { class: 'grow muted small' }, f.campus_name, ' · ', dateTime(f.created_at)), feedbackStatusBadge(f.status)),
+      h('div', { class: 'pre small', style: 'margin-top:4px' }, f.body),
+      feedbackImages(f),
+      f.reply && h('div', { class: 'reply' }, h('b', {}, t('schoolReply'), '：'), h('span', { class: 'pre' }, f.reply), h('div', { class: 'muted small' }, f.handled_by, ' · ', dateTime(f.handled_at)))))) :
+      h('p', { class: 'small muted', style: 'margin:8px 0 0' }, t('feedbackHint')));
+}
+
+function feedbackDialog(done) {
+  const children = state.me.children || [];
+  const campuses = [...new Map(children.map((c) => [c.campus_id, c.campus_name])).entries()];
+  const cat = h('select', {}, FEEDBACK_CATEGORIES.map((c) => h('option', { value: c }, t('fbc_' + c))));
+  const school = campuses.length > 1 && h('select', {}, campuses.map(([id, name]) => h('option', { value: id }, name)));
+  const body = h('textarea', { required: true, maxlength: 2000, placeholder: t('feedbackBodyPh') });
+  const images = h('input', { type: 'file', accept: 'image/*', multiple: true });
+  const contact = h('input', { type: 'text', maxlength: 100, value: state.me.user.phone || '', placeholder: t('forgotContactPh') });
+  openDialog(t('feedbackNew'), [
+    field(t('fbCategory'), cat), school && field(t('fbSchool'), school),
+    field(t('fbBody'), body), field(t('fbImages'), images), field(t('fbContact'), contact),
+  ], () => run(async () => {
+    if (images.files.length > 3) throw new ApiError(t('err:at most 3 photos'));
+    const fd = new FormData();
+    fd.set('category', cat.value); fd.set('body', body.value); fd.set('contact', contact.value);
+    if (school) fd.set('campus_id', school.value);
+    for (const f of images.files) fd.append('image', await shrinkImage(f), 'photo.jpg');
+    await api('POST', '/api/feedback', fd);
+    done();
+  }, t('feedbackSent')), t('forgotSend'));
+}
+
 // ============ me ============
 VIEWS.me = async (main) => {
   const u = state.me.user;
@@ -676,6 +717,7 @@ VIEWS.me = async (main) => {
       h('h3', {}, t('language')),
       h('div', { class: 'seg' }, [['zh', '中文'], ['en', 'English']].map(([k, label]) =>
         h('button', { class: lang === k ? 'on' : null, onclick: () => { lang = k; try { localStorage.setItem('lang', k); } catch (e) { /* ignore */ } render(); } }, label)))),
+    u.role !== 'admin' && await myFeedbackCard(rerender),
     detailsForm,
     h('form', { class: 'card', onsubmit: async (e) => {
       e.preventDefault();

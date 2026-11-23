@@ -265,6 +265,26 @@ CREATE TABLE IF NOT EXISTS export_logs (
 	created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS feedback (
+	id         INTEGER PRIMARY KEY,
+	user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+	campus_id  INTEGER REFERENCES campuses(id) ON DELETE SET NULL,
+	category   TEXT NOT NULL,
+	body       TEXT NOT NULL,
+	contact    TEXT NOT NULL DEFAULT '',
+	status     TEXT NOT NULL CHECK (status IN ('new','in_progress','resolved')),
+	reply      TEXT NOT NULL DEFAULT '',
+	handled_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+	handled_at TEXT NOT NULL DEFAULT '',
+	created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS feedback_images (
+	id          INTEGER PRIMARY KEY,
+	feedback_id INTEGER NOT NULL REFERENCES feedback(id) ON DELETE CASCADE,
+	file_name   TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance(date);
 CREATE INDEX IF NOT EXISTS idx_receipts_status ON receipts(status);
 `

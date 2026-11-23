@@ -9,7 +9,7 @@ const manageFilter = { classId: '', role: '' };
 VIEWS.manage = async (main) => {
   const rerender = () => VIEWS.manage(main);
   const top = !state.me.user.campus_id;
-  const tabs = ['students', 'classes', 'users', 'fees', 'cards', 'campuses', 'notify'];
+  const tabs = ['students', 'classes', 'users', 'fees', 'feedback', 'cards', 'campuses', 'notify'];
   if (!tabs.includes(manageTab)) manageTab = 'students';
   const body = [];
   await MANAGE[manageTab](body, rerender);
@@ -226,6 +226,34 @@ MANAGE.users = async (body, rerender) => {
 
 // ---------- fees ----------
 MANAGE.fees = (body, rerender) => manageFees(body, rerender);
+
+// ---------- feedback ----------
+let feedbackFilter = '';
+MANAGE.feedback = async (body, rerender) => {
+  const list = await api('GET', '/api/feedback' + (feedbackFilter ? '?status=' + feedbackFilter : ''));
+  body.push(h('div', { class: 'seg' }, ['', 'new', 'in_progress', 'resolved'].map((s) =>
+    h('button', { class: feedbackFilter === s ? 'on' : null, onclick: () => { feedbackFilter = s; rerender(); } }, s ? t('fb_' + s) : t('st_all')))));
+  if (!list.length) body.push(h('div', { class: 'card' }, emptyRow()));
+  for (const f of list) {
+    body.push(h('section', { class: 'card' },
+      h('div', { class: 'row' }, h('span', { class: 'badge' }, t('fbc_' + f.category)), h('b', { class: 'grow' }, f.user_name, ' ', h('span', { class: 'muted small' }, t('role_' + f.user_role))), feedbackStatusBadge(f.status)),
+      h('div', { class: 'muted small' }, allCampuses() ? f.campus_name + ' · ' : '', f.children && f.children + ' · ', dateTime(f.created_at)),
+      h('p', { class: 'pre', style: 'margin:8px 0' }, f.body),
+      feedbackImages(f),
+      (f.contact || f.user_phone) && h('div', { class: 'small' }, t('fbContact'), ': ', f.contact || f.user_phone),
+      f.reply && h('div', { class: 'reply' }, h('b', {}, t('schoolReply'), '：'), h('span', { class: 'pre' }, f.reply), h('div', { class: 'muted small' }, f.handled_by, ' · ', dateTime(f.handled_at))),
+      h('div', { class: 'row', style: 'justify-content:flex-end;margin-top:8px' },
+        h('button', { class: 'btn sm primary', onclick: () => {
+          const reply = h('textarea', { maxlength: 2000 }, f.reply);
+          const status = h('select', {}, ['new', 'in_progress', 'resolved'].map((s) => h('option', { value: s, selected: s === (f.status === 'new' ? 'resolved' : f.status) }, t('fb_' + s))));
+          openDialog(t('replyTitle'), [h('p', { class: 'small muted pre', style: 'margin-top:0' }, truncateText(f.body, 200)), field(t('fbReply'), reply), field(t('status'), status),
+            h('p', { class: 'small muted' }, t('replyHint'))],
+          () => run(async () => { await api('POST', `/api/feedback/${f.id}/reply`, { status: status.value, reply: reply.value }); rerender(); }, t('saved')));
+        } }, t('fbHandle')))));
+  }
+};
+
+const truncateText = (s, n) => (s.length > n ? s.slice(0, n) + '…' : s);
 
 // ---------- QR cards ----------
 MANAGE.cards = async (body, rerender) => {
